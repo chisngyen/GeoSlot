@@ -21,7 +21,16 @@ class LinearAttention(nn.Module):
 class MambaVisionBackbone(nn.Module):
     def __init__(self, model_name="nvidia/MambaVision-L-1K", feature_dim=640, frozen=False):
         super().__init__()
-        self.model = AutoModel.from_pretrained(model_name, trust_remote_code=True)
+        # Fix MambaVision bug: torch.linspace creates meta tensor causing .item() to crash
+        old_linspace = torch.linspace
+        def patched_linspace(*args, **kwargs):
+            kwargs["device"] = "cpu"
+            return old_linspace(*args, **kwargs)
+        torch.linspace = patched_linspace
+        try:
+            self.model = AutoModel.from_pretrained(model_name, trust_remote_code=True, low_cpu_mem_usage=False)
+        finally:
+            torch.linspace = old_linspace
         if hasattr(self.model, 'head'): self.model.head = nn.Identity()
         self.feature_dim = feature_dim
         if frozen: self.freeze()
