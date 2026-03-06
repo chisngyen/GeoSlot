@@ -1,7 +1,7 @@
 # =============================================================================
 # GeoSlot: Shared Model Code for all Kaggle phases
 # Import this at the top of each phase script:
-#   exec(open("GeoSlot_model.py").read())
+#   exec(open("geoslot_model.py").read())
 # =============================================================================
 import torch, torch.nn as nn, torch.nn.functional as F
 from transformers import AutoModel

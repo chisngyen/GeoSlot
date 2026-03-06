@@ -7,15 +7,21 @@
 # === SETUP (Auto-install dependencies) ===
 import subprocess, sys
 
-def install(pkg):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", pkg])
+def install(pkg, extra_args=None):
+    cmd = [sys.executable, "-m", "pip", "install", "-q"]
+    if extra_args: cmd.extend(extra_args)
+    cmd.append(pkg)
+    subprocess.check_call(cmd)
 
-required = ["mambavision", "timm", "transformers", "tqdm"]
-for pkg in required:
-    try:
-        __import__(pkg)
-    except ImportError:
-        install(pkg)
+# Install mambavision WITHOUT mamba-ssm (which fails to compile on Kaggle)
+for pkg in ["timm", "transformers", "tqdm"]:
+    try: __import__(pkg)
+    except ImportError: install(pkg)
+
+try:
+    import mambavision
+except ImportError:
+    install("mambavision", ["--no-deps"])
 
 # === IMPORTS ===
 import os, math, glob, json, time, gc

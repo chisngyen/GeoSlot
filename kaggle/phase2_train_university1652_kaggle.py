@@ -19,7 +19,7 @@ from PIL import Image
 from tqdm import tqdm
 
 # --- Load shared model ---
-exec(open(os.path.join(os.path.dirname(__file__), "GeoSlot_model.py")).read())
+exec(open(os.path.join(os.path.dirname(__file__), "geoslot_model.py")).read())
 
 # === CONFIG ===
 UNI1652_ROOT = "/kaggle/input/datasets/chinguyeen/university-1652/University-1652"
