@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "skills": {
+    "academic-researcher": {
+      "source": "Shubhamsaboo/awesome-llm-apps",
+      "sourceType": "github",
+      "computedHash": "73a461c6ca9d0d5d9fb66da78915f2500a92ed59874873f03beed4cfb7bdd281"
+    },
+    "agent-planner": {
+      "source": "ruvnet/ruflo",
+      "sourceType": "github",
+      "computedHash": "2005f82dca38dffbf2871e3cdc89acef8b5b24d0dc27b0f7a019e4926d18177b"
+    },
+    "coding-agent": {
+      "source": "openclaw/openclaw",
+      "sourceType": "github",
+      "computedHash": "17667d3d9d3a7965a3992755b26223cc52f7d3c3c0d3e95538417752a802d2cc"
+    },
+    "create-readme": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "computedHash": "d0ece1b2164ce1376e4ab6e98d6ac079df3a2a94f5f02224362b6a1ce2516ae9"
+    },
+    "deep-research": {
+      "source": "Shubhamsaboo/awesome-llm-apps",
+      "sourceType": "github",
+      "computedHash": "0f11d17f968300db3ca6544edc7398234982f9006c3d02c45c73fca3e4706237"
+    }
+  }
+}

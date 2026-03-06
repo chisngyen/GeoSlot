@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# PyTorch
+*.pth
+*.pt
+*.ckpt
+checkpoints/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data (large files)
+data/
+datasets/
+*.tar.gz
+*.zip
+
+# Logs
+wandb/
+runs/
+logs/
+*.log
+
+# Gemini
+.gemini/
+.agents/

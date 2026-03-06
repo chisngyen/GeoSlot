@@ -1,0 +1,351 @@
+```
+============================================================
+KAGGLE DATASET STRUCTURE EXPLORER
+============================================================
+
+[+] Đang đọc: /kaggle/input/datasets/chinguyeen/cvusa-subdataset/CVUSA
+----------------------------------------------------------------------------------------------------------------
+├── CVPR_subset/
+│   ├── README.docx
+│   ├── all.csv
+│   ├── bingmap/
+│   │   ├── 18/
+│   │   ├── 19/
+│   │   └── 20/
+│   ├── split_locations/
+│   │   ├── all.csv
+│   │   ├── test.csv
+│   │   └── train.csv
+│   ├── splits/
+│   │   ├── train-19zl.csv
+│   │   └── val-19zl.csv
+│   └── streetview/
+│       ├── annotations/
+│       └── panos/
+├── LICENSE.md
+├── README.md
+├── example.py
+└── metadata/
+    ├── README.md
+    ├── example.py
+    ├── flickr_images.txt
+    └── streetview_images.txt
+------------------------------
+Tổng kết: 11 thư mục, 183690 files.
+
+[+] Đang đọc: /kaggle/input/datasets/chinguyeen/university-1652/University-1652
+----------------------------------------------------------------------------------------------------------------------------------
+├── readme.txt
+├── test/
+│   ├── 4K_drone/
+│   │   └── 0000/
+│   ├── gallery_drone/
+│   │   ├── 0000/
+│   │   ├── 0001/
+│   │   ├── 0002/
+│   │   ├── 0003/
+│   │   ├── 0004/
+│   │   ├── 0005/
+│   │   ├── 0006/
+│   │   ├── 0007/
+│   │   ├── 0008/
+│   │   ├── 0009/
+│   │   ├── 0010/
+│   │   ├── 0011/
+│   │   ├── 0012/
+│   │   ├── 0013/
+│   │   ├── 0014/
+│   │   └── ... (+ 936 more folders/files)
+│   ├── gallery_satellite/
+│   │   ├── 0000/
+│   │   ├── 0001/
+│   │   ├── 0002/
+│   │   ├── 0003/
+│   │   ├── 0004/
+│   │   ├── 0005/
+│   │   ├── 0006/
+│   │   ├── 0007/
+│   │   ├── 0008/
+│   │   ├── 0009/
+│   │   ├── 0010/
+│   │   ├── 0011/
+│   │   ├── 0012/
+│   │   ├── 0013/
+│   │   ├── 0014/
+│   │   └── ... (+ 936 more folders/files)
+│   ├── gallery_street/
+│   │   ├── 0000/
+│   │   ├── 0001/
+│   │   ├── 0002/
+│   │   ├── 0003/
+│   │   ├── 0004/
+│   │   ├── 0005/
+│   │   ├── 0006/
+│   │   ├── 0007/
+│   │   ├── 0008/
+│   │   ├── 0009/
+│   │   ├── 0010/
+│   │   ├── 0011/
+│   │   ├── 0012/
+│   │   ├── 0013/
+│   │   ├── 0014/
+│   │   └── ... (+ 778 more folders/files)
+│   ├── query_drone/
+│   │   ├── 0000/
+│   │   ├── 0001/
+│   │   ├── 0003/
+│   │   ├── 0004/
+│   │   ├── 0005/
+│   │   ├── 0006/
+│   │   ├── 0007/
+│   │   ├── 0008/
+│   │   ├── 0010/
+│   │   ├── 0011/
+│   │   ├── 0012/
+│   │   ├── 0013/
+│   │   ├── 0015/
+│   │   ├── 0016/
+│   │   ├── 0017/
+│   │   └── ... (+ 686 more folders/files)
+│   ├── query_satellite/
+│   │   ├── 0000/
+│   │   ├── 0001/
+│   │   ├── 0003/
+│   │   ├── 0004/
+│   │   ├── 0005/
+│   │   ├── 0006/
+│   │   ├── 0007/
+│   │   ├── 0008/
+│   │   ├── 0010/
+│   │   ├── 0011/
+│   │   ├── 0012/
+│   │   ├── 0013/
+│   │   ├── 0015/
+│   │   ├── 0016/
+│   │   ├── 0017/
+│   │   └── ... (+ 686 more folders/files)
+│   └── query_street/
+│       ├── 0000/
+│       ├── 0001/
+│       ├── 0003/
+│       ├── 0004/
+│       ├── 0005/
+│       ├── 0006/
+│       ├── 0007/
+│       ├── 0008/
+│       ├── 0010/
+│       ├── 0011/
+│       ├── 0012/
+│       ├── 0013/
+│       ├── 0015/
+│       ├── 0016/
+│       ├── 0017/
+│       └── ... (+ 686 more folders/files)
+└── train/
+    ├── drone/
+    │   ├── 0839/
+    │   ├── 0842/
+    │   ├── 0843/
+    │   ├── 0844/
+    │   ├── 0845/
+    │   ├── 0846/
+    │   ├── 0847/
+    │   ├── 0849/
+    │   ├── 0850/
+    │   ├── 0852/
+    │   ├── 0854/
+    │   ├── 0855/
+    │   ├── 0856/
+    │   ├── 0857/
+    │   ├── 0859/
+    │   └── ... (+ 686 more folders/files)
+    ├── google/
+    │   ├── 0839/
+    │   ├── 0842/
+    │   ├── 0843/
+    │   ├── 0844/
+    │   ├── 0845/
+    │   ├── 0846/
+    │   ├── 0847/
+    │   ├── 0849/
+    │   ├── 0850/
+    │   ├── 0852/
+    │   ├── 0854/
+    │   ├── 0855/
+    │   ├── 0856/
+    │   ├── 0857/
+    │   ├── 0859/
+    │   └── ... (+ 674 more folders/files)
+    ├── satellite/
+    │   ├── 0839/
+    │   ├── 0842/
+    │   ├── 0843/
+    │   ├── 0844/
+    │   ├── 0845/
+    │   ├── 0846/
+    │   ├── 0847/
+    │   ├── 0849/
+    │   ├── 0850/
+    │   ├── 0852/
+    │   ├── 0854/
+    │   ├── 0855/
+    │   ├── 0856/
+    │   ├── 0857/
+    │   ├── 0859/
+    │   └── ... (+ 686 more folders/files)
+    └── street/
+        ├── 0839/
+        ├── 0842/
+        ├── 0843/
+        ├── 0844/
+        ├── 0845/
+        ├── 0846/
+        ├── 0847/
+        ├── 0849/
+        ├── 0850/
+        ├── 0852/
+        ├── 0854/
+        ├── 0855/
+        ├── 0856/
+        ├── 0857/
+        ├── 0859/
+        └── ... (+ 686 more folders/files)
+------------------------------
+Tổng kết: 7604 thư mục, 2826 files.
+
+[+] Đang đọc: /kaggle/input/datasets/chisboiz/cv-cities
+----------------------------------------------------------------------------------
+├── .gitattributes
+├── README.md
+├── barcelona/
+│   └── barcelona/
+│       ├── img_info.csv
+│       ├── pano_images/
+│       └── sat_images/
+├── captown/
+│   └── captown/
+│       ├── img_info.csv
+│       ├── pano_images/
+│       └── sat_images/
+├── gps_dict_10_cities.pkl
+├── london/
+│   └── london/
+│       ├── img_info.csv
+│       ├── pano_images/
+│       └── sat_images/
+├── losangeles/
+│   └── losangeles/
+│       ├── img_info.csv
+│       ├── pano_images/
+│       └── sat_images/
+├── maynila/
+│   └── maynila/
+│       ├── img_info.csv
+│       ├── pano_images/
+│       └── sat_images/
+├── melbourne/
+│   └── melbourne/
+│       ├── img_info.csv
+│       ├── pano_images/
+│       └── sat_images/
+├── mexico/
+│   └── mexico/
+│       ├── img_info.csv
+│       ├── pano_images/
+│       └── sat_images/
+├── newyork/
+│   └── newyork/
+│       ├── img_info.csv
+│       ├── pano_images/
+│       └── sat_images/
+├── paris/
+│   └── paris/
+│       ├── img_info.csv
+│       ├── pano_images/
+│       └── sat_images/
+├── rio/
+│   └── rio/
+│       ├── img_info.csv
+│       ├── pano_images/
+│       └── sat_images/
+├── santiago/
+│   └── santiago/
+│       ├── img_info.csv
+│       ├── pano_images/
+│       └── sat_images/
+├── seattle/
+│   └── seattle/
+│       ├── img_info.csv
+│       ├── pano_images/
+│       └── sat_images/
+└── ... (+ 4 more folders/files)
+------------------------------
+Tổng kết: 52 thư mục, 384659 files.
+
+[+] Đang đọc: /kaggle/input/datasets/chinguyeen/vigor-chicago
+----------------------------------------------------------------------------------------------
+├── Chicago/
+│   ├── pano_label_balanced.txt
+│   ├── same_area_balanced_test.txt
+│   ├── same_area_balanced_train.txt
+│   └── satellite_list.txt
+├── panorama/
+│   └── panorama/
+└── satellite/
+    └── satellite/
+------------------------------
+Tổng kết: 5 thư mục, 43611 files.
+
+[+] Đang đọc: /kaggle/input/datasets/chinguyeen/vigor-newyork
+----------------------------------------------------------------------------------------------
+├── NewYork/
+│   ├── pano_label_balanced.txt
+│   ├── same_area_balanced_test.txt
+│   ├── same_area_balanced_train.txt
+│   └── satellite_list.txt
+├── panorama/
+│   └── panorama/
+└── satellite/
+    └── satellite/
+------------------------------
+Tổng kết: 5 thư mục, 51052 files.
+
+[+] Đang đọc: /kaggle/input/datasets/chinguyeen/vigor-sanfrancisco
+--------------------------------------------------------------------------------------------------------
+├── SanFrancisco/
+│   ├── pano_label_balanced.txt
+│   ├── same_area_balanced_test.txt
+│   ├── same_area_balanced_train.txt
+│   └── satellite_list.txt
+├── panorama/
+│   └── panorama/
+└── satellite/
+    └── satellite/
+------------------------------
+Tổng kết: 5 thư mục, 35031 files.
+
+[+] Đang đọc: /kaggle/input/datasets/chinguyeen/vigor-seattle
+----------------------------------------------------------------------------------------------
+├── Seattle/
+│   ├── pano_label_balanced.txt
+│   ├── same_area_balanced_test.txt
+│   ├── same_area_balanced_train.txt
+│   └── satellite_list.txt
+├── panorama/
+│   └── panorama/
+└── satellite/
+    └── satellite/
+------------------------------
+Tổng kết: 5 thư mục, 25316 files.
+
+============================================================
+TỔNG KẾT TOÀN BỘ DATASETS
+============================================================
+/kaggle/input/datasets/chinguyeen/cvusa-subdataset/CVUSA     |    11 dirs |   183690 files
+/kaggle/input/datasets/chinguyeen/university-1652/University-1652 |  7604 dirs |     2826 files
+/kaggle/input/datasets/chisboiz/cv-cities                    |    52 dirs |   384659 files
+/kaggle/input/datasets/chinguyeen/vigor-chicago              |     5 dirs |    43611 files
+/kaggle/input/datasets/chinguyeen/vigor-newyork              |     5 dirs |    51052 files
+/kaggle/input/datasets/chinguyeen/vigor-sanfrancisco         |     5 dirs |    35031 files
+/kaggle/input/datasets/chinguyeen/vigor-seattle              |     5 dirs |    25316 files
+```
