@@ -386,16 +386,16 @@ class DWBL(nn.Module):
         return (-torch.log(torch.exp(pos/self.t) / (torch.exp(pos/self.t) + wneg + 1e-8))).mean()
 
 class ContrastiveSlotLoss(nn.Module):
-    def __init__(self, temperature=0.1): super().__init__(); self.t = temperature
+    def __init__(self, temperature=0.5): super().__init__(); self.t = temperature
     def forward(self, out):
         qs = F.normalize(out["query_slots"], dim=-1); rs = F.normalize(out["ref_slots"], dim=-1)
-        T = out["transport_plan"]; Tn = T / (T.sum(dim=-1, keepdim=True) + 1e-8)
+        T = out["transport_plan"].detach(); Tn = T / (T.sum(dim=-1, keepdim=True) + 1e-8)
         loss = -(Tn * F.log_softmax(torch.bmm(qs, rs.transpose(1,2)) / self.t, dim=-1)).sum(dim=-1)
         km = out.get("query_keep_mask")
         return (loss * km).sum() / (km.sum() + 1e-8) if km is not None else loss.mean()
 
 class DiceLoss(nn.Module):
-    def __init__(self, smooth=1.0): super().__init__(); self.s = smooth
+    def __init__(self, smooth=0.1): super().__init__(); self.s = smooth
     def forward(self, attn_maps, keep_mask=None):
         B, K, N = attn_maps.shape
         an = attn_maps / (attn_maps.sum(dim=-1, keepdim=True) + 1e-8)
@@ -407,10 +407,10 @@ class DiceLoss(nn.Module):
         return loss / max(count, 1)
 
 class JointLoss(nn.Module):
-    def __init__(self, lam_i=1.0, lam_d=1.0, lam_cs=0.5, lam_di=0.3, stage2=20, stage3=40):
+    def __init__(self, lam_i=1.0, lam_d=1.0, lam_cs=0.3, lam_di=0.1, stage2=20, stage3=40, warmup=5):
         super().__init__()
         self.lam_i=lam_i; self.lam_d=lam_d; self.lam_cs=lam_cs; self.lam_di=lam_di
-        self.s2=stage2; self.s3=stage3
+        self.s2=stage2; self.s3=stage3; self.warmup=warmup
         self.infonce=SymmetricInfoNCE(); self.dwbl=DWBL()
         self.csm=ContrastiveSlotLoss(); self.dice=DiceLoss()
 
@@ -420,8 +420,9 @@ class JointLoss(nn.Module):
         total = self.lam_i * li + self.lam_d * ld
         lcs = ldi = torch.tensor(0.0, device=total.device)
         if epoch >= self.s2:
+            ramp = min(1.0, (epoch - self.s2 + 1) / self.warmup)
             lcs = self.csm(out); ldi = self.dice(out["query_attn_maps"], out.get("query_keep_mask"))
-            total = total + self.lam_cs * lcs + self.lam_di * ldi
+            total = total + ramp * (self.lam_cs * lcs + self.lam_di * ldi)
         stage = 3 if epoch >= self.s3 else (2 if epoch >= self.s2 else 1)
         return {"total_loss": total, "loss_infonce": li.detach(), "loss_dwbl": ld.detach(),
                 "loss_csm": lcs.detach() if lcs.requires_grad else lcs,

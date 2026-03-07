@@ -22,7 +22,7 @@ class DiceLoss(nn.Module):
     Args:
         smooth: Smoothing factor to avoid division by zero
     """
-    def __init__(self, smooth: float = 1.0):
+    def __init__(self, smooth: float = 0.1):
         super().__init__()
         self.smooth = smooth
 

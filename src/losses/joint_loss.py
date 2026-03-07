@@ -37,11 +37,12 @@ class JointLoss(nn.Module):
         self,
         lambda_infonce: float = 1.0,
         lambda_dwbl: float = 1.0,
-        lambda_csm: float = 0.5,
-        lambda_dice: float = 0.3,
+        lambda_csm: float = 0.3,
+        lambda_dice: float = 0.1,
         temperature: float = 0.07,
         stage2_epoch: int = 30,
         stage3_epoch: int = 60,
+        warmup_epochs: int = 5,
     ):
         super().__init__()
         self.lambda_infonce = lambda_infonce
@@ -50,11 +51,12 @@ class JointLoss(nn.Module):
         self.lambda_dice = lambda_dice
         self.stage2_epoch = stage2_epoch
         self.stage3_epoch = stage3_epoch
+        self.warmup_epochs = warmup_epochs
 
         # Loss modules
         self.infonce = SymmetricInfoNCE(temperature=temperature)
         self.dwbl = DWBL(temperature=temperature * 1.5)
-        self.csm = ContrastiveSlotMatchingLoss(temperature=temperature)
+        self.csm = ContrastiveSlotMatchingLoss(temperature=max(temperature, 0.5))
         self.dice = DiceLoss()
 
     def forward(self, model_output: Dict, epoch: int = 0) -> Dict[str, torch.Tensor]:
@@ -91,12 +93,14 @@ class JointLoss(nn.Module):
 
         # ===== Stage 2: Slot quality losses (activated at stage2_epoch) =====
         if epoch >= self.stage2_epoch:
+            # Linear warm-up ramp to prevent gradient shock at stage transition
+            ramp = min(1.0, (epoch - self.stage2_epoch + 1) / self.warmup_epochs)
             loss_csm = self.csm(model_output)
             loss_dice = self.dice(
                 model_output['query_attn_maps'],
                 model_output.get('query_keep_mask')
             )
-            total = total + self.lambda_csm * loss_csm + self.lambda_dice * loss_dice
+            total = total + ramp * (self.lambda_csm * loss_csm + self.lambda_dice * loss_dice)
             losses['loss_csm'] = loss_csm.detach()
             losses['loss_dice'] = loss_dice.detach()
         else:

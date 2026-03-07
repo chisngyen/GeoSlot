@@ -239,19 +239,19 @@ class DWBL(nn.Module):
         pe=torch.exp(p/self.t); return (-torch.log(pe/(pe+wn+1e-8))).mean()
 
 class ContrastiveSlotLoss(nn.Module):
-    def __init__(self, t=0.1):
+    def __init__(self, t=0.5):
         super().__init__(); self.t=t
     def forward(self, out):
         if out.get("transport_plan") is None: return torch.tensor(0.0)
         qs=F.normalize(out["query_slots"],-1); rs=F.normalize(out["ref_slots"],-1)
-        T=out["transport_plan"]; Tn=T/(T.sum(-1,True)+1e-8)
+        T=out["transport_plan"].detach(); Tn=T/(T.sum(-1,True)+1e-8)
         sim=torch.bmm(qs,rs.transpose(1,2))/self.t
         loss=-(Tn*F.log_softmax(sim,-1)).sum(-1)
         km=out.get("query_keep_mask")
         return (loss*km).sum()/(km.sum()+1e-8) if km is not None else loss.mean()
 
 class DiceLoss(nn.Module):
-    def __init__(self, s=1.0):
+    def __init__(self, s=0.1):
         super().__init__(); self.s=s
     def forward(self, am, km=None):
         if am is None: return torch.tensor(0.0)
@@ -264,9 +264,9 @@ class DiceLoss(nn.Module):
         return l/max(c,1)
 
 class JointLoss(nn.Module):
-    def __init__(self, s2=20, s3=40):
+    def __init__(self, s2=20, s3=40, warmup=5):
         super().__init__()
-        self.s2=s2; self.s3=s3
+        self.s2=s2; self.s3=s3; self.warmup=warmup
         self.infonce=SymmetricInfoNCE(); self.dwbl=DWBL()
         self.csm=ContrastiveSlotLoss(); self.dice=DiceLoss()
     def forward(self, out, epoch=0):
@@ -275,11 +275,12 @@ class JointLoss(nn.Module):
         total = li + ld
         lc = ldi = torch.tensor(0.0, device=total.device)
         if epoch >= self.s2:
+            ramp = min(1.0, (epoch - self.s2 + 1) / self.warmup)
             lc = self.csm(out)
             am = out.get("query_attn_maps")
             ldi = self.dice(am, out.get("query_keep_mask"))
-            if lc.requires_grad: total = total + 0.5 * lc
-            if ldi.requires_grad: total = total + 0.3 * ldi
+            if lc.requires_grad: total = total + ramp * 0.3 * lc
+            if ldi.requires_grad: total = total + ramp * 0.1 * ldi
         st = 3 if epoch >= self.s3 else (2 if epoch >= self.s2 else 1)
         return {"total_loss": total, "loss_infonce": li.detach(), "loss_dwbl": ld.detach(),
                 "loss_csm": lc.detach() if isinstance(lc, torch.Tensor) and lc.requires_grad else lc,

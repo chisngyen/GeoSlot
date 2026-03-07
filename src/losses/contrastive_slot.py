@@ -26,7 +26,7 @@ class ContrastiveSlotMatchingLoss(nn.Module):
         temperature: Contrastive temperature
         register_weight: Weight for register slot regularization
     """
-    def __init__(self, temperature: float = 0.1, register_weight: float = 0.5):
+    def __init__(self, temperature: float = 0.5, register_weight: float = 0.5):
         super().__init__()
         self.temperature = temperature
         self.register_weight = register_weight
@@ -53,6 +53,11 @@ class ContrastiveSlotMatchingLoss(nn.Module):
 
         # Similarity between all slot pairs
         sim = torch.bmm(q_norm, r_norm.transpose(1, 2)) / self.temperature  # [B, K, M]
+
+        # Detach transport plan — prevents circular gradient loop
+        # (transport_plan is also being optimized; using it as target without
+        # detaching creates degenerate convergence)
+        transport_plan = transport_plan.detach()
 
         # Use transport plan as soft labels (which slots should match)
         # Normalize transport plan to get probability distribution per query slot
