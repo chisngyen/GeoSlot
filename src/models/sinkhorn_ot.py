@@ -11,6 +11,8 @@ use Optimal Transport to find the minimum-cost bipartite matching between
 two sets of object slots from different views.
 """
 
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -189,4 +191,4 @@ class SinkhornOT(nn.Module):
         }
 
 
-import math  # needed for log in __init__
+

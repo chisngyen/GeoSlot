@@ -70,7 +70,7 @@ RESUME_FROM  = None  # Ví dụ: "/kaggle/working/best_model_cvusa.pth"
 
 # --- Model (giữ nguyên với Phase 1) ---
 BACKBONE_NAME  = "nvidia/MambaVision-L-1K"
-FEATURE_DIM    = 640
+FEATURE_DIM    = 1568
 SLOT_DIM       = 256
 MAX_SLOTS      = 12
 N_REGISTER     = 4
@@ -515,7 +515,7 @@ class University1652Dataset(Dataset):
                 s = Image.open(sp).convert("RGB")
             except:
                 d = s = Image.new("RGB", (IMG_SIZE, IMG_SIZE), (128,128,128))
-            return {"query": self.tf_aug(d), "gallery": self.tf_aug(s), "class_id": cls}
+            return {"query": self.tf_aug(d), "gallery": self.tf(s), "class_id": cls}
         else:
             try: img = Image.open(self.query_imgs[idx]).convert("RGB")
             except: img = Image.new("RGB", (IMG_SIZE, IMG_SIZE), (128,128,128))

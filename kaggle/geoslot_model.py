@@ -6,6 +6,12 @@
 import torch, torch.nn as nn, torch.nn.functional as F
 from transformers import AutoModel
 
+try:
+    from mamba_ssm import Mamba
+    _HAS_MAMBA = True
+except ImportError:
+    _HAS_MAMBA = False
+
 class LinearAttention(nn.Module):
     def __init__(self, d_model, d_state=16, d_conv=4, expand=2):
         super().__init__()
@@ -19,7 +25,7 @@ class LinearAttention(nn.Module):
         return self.proj_out(self.norm(self.act(z) * torch.sigmoid(gate)))
 
 class MambaVisionBackbone(nn.Module):
-    def __init__(self, model_name="nvidia/MambaVision-L-1K", feature_dim=640, frozen=False):
+    def __init__(self, model_name="nvidia/MambaVision-L-1K", feature_dim=1568, frozen=False):
         super().__init__()
         # Fix MambaVision bug: torch.linspace creates meta tensor causing .item() to crash
         old_linspace = torch.linspace
@@ -106,11 +112,23 @@ class AdaptiveSlotAttention(nn.Module):
         return {"object_slots":obj*kd.unsqueeze(-1),"register_slots":reg,"bg_mask":bm,
                 "attn_maps":am,"keep_decision":kd,"keep_probs":kp}
 
+class SSMBlock(nn.Module):
+    """SSM block: uses real Mamba if available, else LinearAttention fallback."""
+    def __init__(self, d_model, d_state=16, d_conv=4, expand=2):
+        super().__init__()
+        if _HAS_MAMBA:
+            self.core = Mamba(d_model=d_model, d_state=d_state, d_conv=d_conv, expand=expand)
+        else:
+            self.core = LinearAttention(d_model, d_state, d_conv, expand)
+        self.norm = nn.LayerNorm(d_model)
+    def forward(self, x):
+        return x + self.core(self.norm(x))
+
 class GraphMambaLayer(nn.Module):
     def __init__(self, d, nl=2):
         super().__init__()
-        self.fwd=nn.ModuleList([LinearAttention(d) for _ in range(nl)])
-        self.bwd=nn.ModuleList([LinearAttention(d) for _ in range(nl)])
+        self.fwd=nn.ModuleList([SSMBlock(d) for _ in range(nl)])
+        self.bwd=nn.ModuleList([SSMBlock(d) for _ in range(nl)])
         self.mrg=nn.ModuleList([nn.Linear(d*2,d) for _ in range(nl)])
         self.nrm=nn.ModuleList([nn.LayerNorm(d) for _ in range(nl)])
         self.ffn=nn.ModuleList([nn.Sequential(nn.LayerNorm(d),nn.Linear(d,d*4),nn.GELU(),nn.Linear(d*4,d)) for _ in range(nl)])
@@ -146,7 +164,7 @@ class SinkhornOT(nn.Module):
 
 class GeoSlot(nn.Module):
     """Full pipeline: MambaVision-L → Slot Attention → Graph Mamba → Sinkhorn OT"""
-    def __init__(self, backbone_name="nvidia/MambaVision-L-1K", fdim=640,
+    def __init__(self, backbone_name="nvidia/MambaVision-L-1K", fdim=1568,
                  sdim=256, ms=12, nr=4, edo=512, heads=4, sa_iters=3,
                  gm_layers=2, sk_iters=15, mesh_iters=3, frozen=False,
                  # Ablation flags

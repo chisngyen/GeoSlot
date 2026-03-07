@@ -27,9 +27,9 @@ CVCITIES_ROOT = "/kaggle/input/datasets/chisboiz/cv-cities"
 OUTPUT_DIR    = "/kaggle/working"
 RESUME_FROM   = None  # e.g. "/kaggle/working/best_model_vigor.pth"
 
-TRAIN_CITIES = ["barcelona","buenosaires","lisbon","london","melbourne",
-                "mexicocity","moscow","newyork","sanfrancisco","santiago","saopaulo","toronto"]
-TEST_CITIES  = ["berlin","osaka","capetown","tokyo"]  # Diverse continents
+TRAIN_CITIES = ["barcelona","london","losangeles","melbourne",
+                "mexico","newyork","paris","rio","santiago","seattle"]
+TEST_CITIES  = ["captown","maynila"]  # Unseen cities (Africa + Asia)
 
 SAT_SIZE = 224;  PANO_SIZE = (512, 128)
 BATCH_SIZE = 32;  EPOCHS = 40;  EVAL_FREQ = 5;  SAVE_FREQ = 10

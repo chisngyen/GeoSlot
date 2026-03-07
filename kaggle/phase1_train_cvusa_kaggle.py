@@ -146,7 +146,7 @@ OUTPUT_DIR = "/kaggle/working"
 
 # --- Model ---
 BACKBONE_NAME  = "nvidia/MambaVision-L-1K"
-FEATURE_DIM    = 640
+FEATURE_DIM    = 1568
 SLOT_DIM       = 256
 MAX_SLOTS      = 12
 N_REGISTER     = 4

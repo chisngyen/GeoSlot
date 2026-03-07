@@ -21,7 +21,7 @@ from torch.cuda.amp import GradScaler, autocast
 # Add src to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from src.models.GeoSlot_geo import GeoSlot
+from src.models.geoslot import GeoSlot
 from src.losses.joint_loss import JointLoss
 from src.datasets.university1652 import University1652Dataset
 from src.datasets.vigor import VIGORDataset

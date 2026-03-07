@@ -91,33 +91,75 @@ class VIGORDataset(Dataset):
 
     def _load_city(self, root, city, split):
         """Load panorama↔satellite pairs from VIGOR directory."""
-        pano_dir = os.path.join(root, "panorama")
-        sat_dir = os.path.join(root, "satellite")
-        split_file = os.path.join(root, "splits", f"{split}_list.txt")
+        # Find the city subdirectory (e.g., Chicago, NewYork, etc.)
+        city_subdir = None
+        for name in ['Chicago', 'NewYork', 'SanFrancisco', 'Seattle']:
+            if os.path.exists(os.path.join(root, name)):
+                city_subdir = name
+                break
+        if city_subdir is None:
+            print(f"  [WARN] No city subdir found in {root}")
+            return
 
-        if os.path.exists(split_file):
-            with open(split_file) as f:
-                for line in f:
-                    parts = line.strip().split()
-                    if len(parts) < 2: continue
-                    pp = os.path.join(pano_dir, parts[0].strip())
-                    sp = os.path.join(sat_dir, parts[1].strip())
-                    if not os.path.exists(pp): pp = os.path.join(root, parts[0].strip())
-                    if not os.path.exists(sp): sp = os.path.join(root, parts[1].strip())
-                    self.pairs.append((pp, sp, city))
-        else:
-            # Fallback: match by GPS proximity or filename
-            panos = sorted(glob.glob(os.path.join(pano_dir, "*.jpg")))
-            sats = sorted(glob.glob(os.path.join(sat_dir, "*.png")) +
-                          glob.glob(os.path.join(sat_dir, "*.jpg")))
-            # Simple pairing by index (VIGOR pairs by nearest GPS)
-            n = min(len(panos), len(sats))
-            ratio = 0.8 if split == "train" else 0.2
-            start = 0 if split == "train" else int(n * 0.8)
-            end = int(n * 0.8) if split == "train" else n
-            for i in range(start, end):
-                if i < len(panos) and i < len(sats):
-                    self.pairs.append((panos[i], sats[i], city))
+        city_dir = os.path.join(root, city_subdir)
+
+        # Panorama and satellite directories (nested: panorama/panorama/, satellite/satellite/)
+        pano_dir = os.path.join(root, "panorama", "panorama")
+        sat_dir = os.path.join(root, "satellite", "satellite")
+        if not os.path.exists(pano_dir):
+            pano_dir = os.path.join(root, "panorama")
+        if not os.path.exists(sat_dir):
+            sat_dir = os.path.join(root, "satellite")
+
+        # Read split file: same_area_balanced_train.txt or same_area_balanced_test.txt
+        split_file = os.path.join(city_dir, f"same_area_balanced_{split}.txt")
+        if not os.path.exists(split_file):
+            print(f"  [WARN] Split file not found: {split_file}")
+            return
+
+        with open(split_file, 'r') as f:
+            split_panos = set(line.strip() for line in f if line.strip())
+
+        # Read label file to get panorama → satellite mapping
+        label_file = os.path.join(city_dir, "pano_label_balanced.txt")
+        if not os.path.exists(label_file):
+            print(f"  [WARN] Label file not found: {label_file}")
+            return
+
+        # Read satellite list for index-to-filename mapping
+        sat_list_file = os.path.join(city_dir, "satellite_list.txt")
+        sat_list = []
+        if os.path.exists(sat_list_file):
+            with open(sat_list_file, 'r') as f:
+                sat_list = [line.strip() for line in f if line.strip()]
+
+        with open(label_file, 'r') as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) < 2:
+                    continue
+
+                pano_name = parts[0]
+                if pano_name not in split_panos:
+                    continue
+
+                pano_path = os.path.join(pano_dir, pano_name)
+                if not os.path.exists(pano_path):
+                    continue
+
+                # parts[1] is the positive satellite image name or index
+                pos_sat = parts[1]
+                # If sat_list exists and pos_sat is a digit, treat as index
+                if sat_list and pos_sat.isdigit():
+                    idx = int(pos_sat)
+                    if idx < len(sat_list):
+                        pos_sat = sat_list[idx]
+
+                sat_path = os.path.join(sat_dir, pos_sat)
+                if not os.path.exists(sat_path):
+                    continue
+
+                self.pairs.append((pano_path, sat_path, city))
 
     def __len__(self):
         return len(self.pairs)
@@ -143,12 +185,8 @@ class VIGORDataset(Dataset):
 def evaluate_vigor(model, cities_roots, eval_cities, sat_size, pano_size, device):
     """Evaluate Hit Rate@K on VIGOR (same-area and/or cross-area)."""
     model.eval()
-    sat_tf = transforms.Compose([transforms.Resize((sat_size,sat_size)),transforms.ToTensor(),
-             transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])])
-    pano_tf = transforms.Compose([transforms.Resize(pano_size),transforms.ToTensor(),
-              transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])])
 
-    # Build test dataset
+    # Build test dataset using the corrected VIGORDataset
     test_ds = VIGORDataset(cities_roots, eval_cities, "test", sat_size, pano_size)
     if len(test_ds) == 0:
         return {"HR@1": 0, "HR@5": 0, "HR@10": 0}
