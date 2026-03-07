@@ -6,7 +6,7 @@
 import subprocess, sys
 def install(pkg):
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", pkg])
-for pkg in ["mambavision", "timm", "transformers", "tqdm"]:
+for pkg in ["mambavision", "timm", "transformers==4.44.2", "tqdm"]:
     try: __import__(pkg)
     except ImportError: install(pkg)
 

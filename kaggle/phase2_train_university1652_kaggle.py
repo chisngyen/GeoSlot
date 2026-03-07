@@ -19,7 +19,8 @@ def pip(pkg, extra=""):
     return run(f"pip install -q {extra} {pkg}")
 
 print("[1/5] Installing base packages...")
-for p in ["timm", "transformers", "tqdm"]:
+pip("transformers==4.44.2")  # MUST pin — newer versions break MambaVision
+for p in ["timm", "tqdm"]:
     try: __import__(p)
     except ImportError: pip(p)
 

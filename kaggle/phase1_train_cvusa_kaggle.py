@@ -56,7 +56,8 @@ print("  ⚠  Kaggle/Colab: nếu đây là lần đầu chạy, hãy restart ke
 
 # ----- Step 3: Base packages -----
 print("[3/6] Installing base packages...")
-for p in ["timm", "transformers", "tqdm"]:
+pip("transformers==4.44.2")  # MUST pin — newer versions break MambaVision (all_tied_weights_keys)
+for p in ["timm", "tqdm"]:
     try:
         __import__(p)
     except ImportError:
