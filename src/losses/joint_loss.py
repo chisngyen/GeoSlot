@@ -123,8 +123,15 @@ class JointLoss(nn.Module):
                 p_r = r_mask.squeeze(-1).clamp(1e-6, 1 - 1e-6)
                 entropy_r = -(p_r * p_r.log() + (1 - p_r) * (1 - p_r).log()).mean()
                 loss_bg_reg = (loss_bg_reg - entropy_r) / 2
-            # Coverage: keep ~70% of tokens
-            coverage_loss = (q_mask.mean() - 0.7) ** 2
+            # Adaptive coverage: use learned γ instead of static 0.7
+            # L_adaptive = max(0, γ - mean(m)) — Hinge Loss
+            q_gamma = model_output.get('query_adaptive_gamma')
+            if q_gamma is not None:
+                q_coverage = q_mask.mean(dim=1)  # [B, 1] per-image
+                coverage_loss = F.relu(q_gamma - q_coverage).mean()
+            else:
+                # Fallback to static coverage if gamma not available
+                coverage_loss = (q_mask.mean() - 0.7) ** 2
             loss_bg_reg = loss_bg_reg + coverage_loss
             total = total + self.lambda_bg_reg * loss_bg_reg
         losses['loss_bg_reg'] = loss_bg_reg.detach() if loss_bg_reg.requires_grad else loss_bg_reg

@@ -1,27 +1,28 @@
-# 🏗️ FINAL PLAN: Cross-View Geo-Localization với Vision Mamba + Slot Attention + Graph Mamba
+# 🏗️ FINAL PLAN: GeoSlot 2.0 — Object-Centric Graph Matching for Cross-View Geo-Localization
 
-> **Tên dự án (Working Title):** *GeoSlot: Object-Centric State-Space Matching for Cross-View Geo-Localization*
-> **Ngày chốt:** 2026-03-06 · **Phần cứng:** Kaggle H100 · **Backbone:** [hustvl/Vim](https://github.com/hustvl/Vim)
+> **Tên dự án:** *GeoSlot: Object-Centric State-Space Graph Matching for Cross-View Geo-Localization*
+> **Ngày cập nhật:** 2026-03-09 · **Target:** ACM Multimedia 2025 · **Phần cứng:** Kaggle H100
 
 ---
 
-## 1. Tổng quan Ý tưởng (Final Idea)
+## 1. Tổng quan Ý tưởng (GeoSlot 2.0)
 
-Xây dựng một hệ thống định vị địa lý chéo góc nhìn (CVGL) **End-to-End** bằng cách kết hợp:
+Xây dựng hệ thống CVGL **End-to-End** kết hợp suy luận dựa trên đối tượng và đối sánh đồ thị:
 
 | Thành phần | Vai trò | Novelty |
 |---|---|---|
-| **Vision Mamba (SS2D)** | Backbone trích xuất đặc trưng $\mathcal{O}(N)$ | Thay thế ViT $\mathcal{O}(N^2)$, tiết kiệm bộ nhớ cho ảnh high-res |
-| **Adaptive Slot Attention + Register Slots** | Phân tách cảnh thành các đối tượng tĩnh (Object-Centric) | Chưa ai dùng Slot Attention trong CVGL |
-| **Graph Mamba** | Lập luận quan hệ không gian giữa các Slots | Relational reasoning tuyến tính thay vì GNN/Graph Transformer |
-| **Sinkhorn Optimal Transport (AGOT + MESH)** | So khớp bipartite giữa 2 tập Slots chéo góc nhìn | Hard matching 1-1 thay vì Cosine Similarity |
-| **Multi-Layer Joint Loss (4 lớp)** | Hệ thống Loss đa tầng chuyên biệt | Kết hợp CVD + DWBL + Temporal Contrastive + Dice |
+| **Vision Mamba (SS2D)** | Backbone trích xuất đặc trưng $\mathcal{O}(N)$ | Thay thế ViT $\mathcal{O}(N^2)$ |
+| **Adaptive Gumbel-Sparsity Mask** | Triệt tiêu nền động với γ tự học | Khắc phục Static Coverage Fallacy |
+| **Adaptive Slot Attention + Register** | Phân tách Object-Centric + noise absorption | Chưa ai dùng trong CVGL |
+| **Spatial 2D Graph Mamba + Hilbert** | Suy luận quan hệ bất biến quay | Hilbert Curve + SSM = novel |
+| **Unbalanced Fused Gromov-Wasserstein** | Đối sánh Graph-to-Graph (node + edge) | FGW chưa từng dùng trong CVGL |
+| **Multi-Layer Joint Loss** | InfoNCE + DWBL + CSM + Dice + Adaptive coverage | Stage-wise training |
 
-**Điểm cốt lõi:** Ảnh không còn là một cục pixel → được tách thành *{Tòa nhà A, Ngã tư B, Bãi cỏ C}* → liên kết quan hệ "A cách B 10m hướng Bắc" → so khớp tối ưu với ảnh vệ tinh qua Optimal Transport.
+**Paradigm Shift:** Ảnh → *{Tòa nhà A, Ngã tư B, Bãi cỏ C}* → xây đồ thị quan hệ → đối sánh đồ thị-to-đồ thị qua FGW OT.
 
 ---
 
-## 2. Kiến trúc Tổng thể (Architecture)
+## 2. Kiến trúc Tổng thể (Architecture GeoSlot 2.0)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -32,35 +33,35 @@ Xây dựng một hệ thống định vị địa lý chéo góc nhìn (CVGL) *
            ▼                                  ▼
 ┌──────────────────────┐         ┌──────────────────────┐
 │  Vision Mamba (SS2D) │         │  Vision Mamba (SS2D) │  ← Shared Weights
-│  + Channel Group     │         │  + Channel Group     │
-│    Pooling (CGP)     │         │    Pooling (CGP)     │
+│  + CGP Head          │         │  + CGP Head          │     O(N) linear
 └──────────┬───────────┘         └──────────┬───────────┘
-           │ Dense Feature Map               │ Dense Feature Map
+           │ Dense Feature Map F             │ Dense Feature Map F
            ▼                                  ▼
 ┌──────────────────────┐         ┌──────────────────────┐
-│ Background Suppress  │         │ Background Suppress  │  ← Auxiliary Loss
-│ (Transient Mask)     │         │ (Transient Mask)     │
+│ Adaptive Gumbel-     │         │ Adaptive Gumbel-     │  ← γ = σ(MLP(GAP(F)))
+│ Sparsity Mask        │         │ Sparsity Mask        │     L_hinge adaptive
 └──────────┬───────────┘         └──────────┬───────────┘
            │                                  │
            ▼                                  ▼
 ┌──────────────────────┐         ┌──────────────────────┐
 │ Adaptive Slot Attn   │         │ Adaptive Slot Attn   │
 │ + Register Slots     │         │ + Register Slots     │
-│ (AdaSlot, K tự động) │         │ (AdaSlot, K tự động) │
+│ (AdaSlot, K dynamic) │         │ (AdaSlot, K dynamic) │
 └──────────┬───────────┘         └──────────┬───────────┘
-           │ K object slots                   │ M object slots
+           │ K object slots + centroids      │ M object slots + centroids
            ▼                                  ▼
 ┌──────────────────────┐         ┌──────────────────────┐
-│    Graph Mamba        │         │    Graph Mamba        │
-│ (Relational Reason.) │         │ (Relational Reason.) │
+│ Spatial 2D Graph     │         │ Spatial 2D Graph     │
+│ Mamba (Hilbert Curve)│         │ Mamba (Hilbert Curve)│  ← Bất biến quay
 └──────────┬───────────┘         └──────────┬───────────┘
-           │ Graph-enhanced slots             │ Graph-enhanced slots
+           │ Enhanced slots + centroids      │ Enhanced slots + centroids
            └──────────┬───────────────────────┘
                       │
                       ▼
            ┌──────────────────────┐
-           │  Sinkhorn OT (AGOT) │
-           │  + MESH (Hard Match)│
+           │  Unbalanced Fused    │
+           │  Gromov-Wasserstein  │  ← Node features + Graph topology
+           │  (UFGW) Matching    │     KL-relaxed marginals
            │  → Similarity Score │
            └──────────────────────┘
 ```
@@ -68,167 +69,110 @@ Xây dựng một hệ thống định vị địa lý chéo góc nhìn (CVGL) *
 ### 2.1. Chi tiết từng Module
 
 #### Module A: Vision Mamba Backbone (SS2D)
-- **Source:** `hustvl/Vim` (Official, ImageNet pre-trained)
+- **Source:** `hustvl/Vim` hoặc MambaVision-L (ImageNet pre-trained)
 - **Kỹ thuật:** Multi-directional scan (4 hướng: ↑↓←→) → global receptive field
-- **Head:** Channel Group Pooling (CGP) thay thế GAP+FC (giảm 1.5% params, giữ local detail)
-- **🔧 Có thể thay đổi:** Thử VMamba-S vs VMamba-B (scale khác nhau) tùy theo VRAM budget
+- **Head:** Channel Group Pooling (CGP), giữ local detail
+- **Output:** Dense features $F \in \mathbb{R}^{N \times d_f}$, $N = (H/P) \times (W/P)$
 
-#### Module B: Background Suppression Mask
-- **Vị trí:** Giữa Mamba output và Slot Attention input
-- **Cơ chế:** Lightweight attention map (1 conv layer) học cách mask out transient objects
-- **Loss phụ:** Auxiliary Contrastive Loss so sánh mask giữa 2 views
-- **🔧 Có thể thay đổi:** Thử thêm Temporal Contrastive Loss (CA-SA) nếu dataset có video sequence
+#### Module B: Adaptive Gumbel-Sparsity Mask (★ MỚI)
+- **Thay đổi so với v1:** `target_ratio=0.7` cố định → `γ = σ(MLP(GAP(F)))` tự học
+- **Loss:** `L_adaptive = max(0, γ - mean(m))` (Adaptive Hinge Loss)
+- **Hiệu quả:**
+  - Sa mạc/nông thôn: γ→1.0, giữ 100% features
+  - Đô thị đông: γ→0.4, cắt 60% nhiễu động
+- **Entropy regularization:** Giữ nguyên (ngăn mask collapse)
 
 #### Module C: Adaptive Slot Attention + Register Slots
-- **AdaSlot:** Số lượng K slots tự điều chỉnh dựa trên scene complexity
-- **Register Slots:** Các slots "rác" chuyên hấp thụ nhiễu → loại bỏ trước matching
-- **Iterative Routing:** 3-5 vòng lặp GRU + softmax cạnh tranh
-- **🔧 Có thể thay đổi:**
-  - Số Register Slots: bắt đầu 2-4, tăng nếu observe background leakage
-  - Số vòng lặp SA: 3 (nhẹ, nhanh) vs 5 (chính xác hơn nhưng chậm)
-  - Thử Dual-Mask (FDSA-Net style) nếu tách nền chưa đủ sạch
+- **AdaSlot:** K slots tự điều chỉnh, Gumbel-Softmax pruning
+- **Register Slots:** R=4 slots hấp thụ nhiễu, loại bỏ trước matching
+- **Iterative Routing:** 3 vòng GRU + softmax cạnh tranh
+- **Output bổ sung:** Centroids $(c_y^k, c_x^k)$ cho mỗi slot
 
-#### Module D: Graph Mamba (Relational Reasoning)
-- **Xây đồ thị:** Từ K slots → Graph $\mathcal{G}=(V,E)$ với edge weights = semantic similarity + spatial proximity
-- **Message passing:** Graph-guided Bidirectional Scan (GBS) thay vì GCN/GAT
-- **🔧 Có thể thay đổi:**
-  - Dùng kNN graph (k=5) vs Fully connected graph → kNN nhẹ hơn, đủ cho urban scenes
-  - Thử thêm positional encoding cho nodes (vị trí tương đối của slots trong feature map)
+#### Module D: Spatial 2D Graph Mamba + Hilbert Curve (★ MỚI)
+- **Thay đổi so với v1:** Raster-scan → Hilbert Curve ordering
+- **Hilbert mapping:** $\pi_{Hilbert} = \text{argsort}(\mathcal{H}(c^k))$ bảo toàn spatial locality
+- **kNN graph:** Dựa trên semantic + spatial distance
+- **Bidirectional Mamba scan:** Forward + backward dọc theo Hilbert order
+- **Bất biến quay:** Xoay ảnh không phá vỡ thứ tự Hilbert
 
-#### Module E: Sinkhorn OT + MESH (Matching)
-- **Ma trận chi phí:** $C_{ij}$ = khoảng cách L2 giữa slot $i$ (query) và slot $j$ (reference)
-- **Sinkhorn iterations:** 10-20 vòng → doubly stochastic matrix
-- **MESH:** Minimize entropy để ép soft → hard assignment (tie-breaking)
-- **🔧 Có thể thay đổi:**
-  - Entropy coefficient $\epsilon$: nhỏ = cứng hơn (chính xác nhưng khó hội tụ), lớn = mềm hơn
-  - Thử Earth Mover's Distance (EMD) thay thế nếu Sinkhorn không ổn định
+#### Module E: Unbalanced Fused Gromov-Wasserstein (★ MỚI)
+- **Thay đổi so với v1:** Sinkhorn + MESH → UFGW
+- **Feature cost:** $C_{ij} = ||\phi(s_i^q) - \phi(s_j^r)||_2$ (node features)
+- **Structure cost:** $|S^q_{ik} - S^r_{jl}|^2$ (graph topology)
+- **FGW loss:** $(1-\lambda) \cdot \text{Wasserstein} + \lambda \cdot \text{Gromov-Wasserstein}$
+- **Unbalanced:** KL divergence nới lỏng marginals → xử lý occlusion
+- **Similarity:** $s(x_q, x_r) = -\mathcal{L}_{UFGW}$
 
 ---
 
-## 3. Hệ thống Loss Functions (Multi-Layer Joint Loss)
+## 3. Hệ thống Loss Functions
 
-### Tầng 1: Filtering & Slot Quality
-| Loss | Mục đích | Trọng số khởi đầu |
+### Tầng 1: Embedding & Metric Learning (Epoch 1-30)
+| Loss | Mục đích | Trọng số |
 |---|---|---|
-| **Contrastive Slot Matching** | Tối đa MI giữa object slots và ảnh gốc | $\lambda_1 = 1.0$ |
-| **Sinkhorn MESH** | Ép hard assignment 1-1 giữa slots | $\lambda_2 = 0.5$ |
-| **Dice Loss** | Giải quyết scale imbalance (slot mask vs image) | $\lambda_3 = 0.3$ |
+| **Symmetric InfoNCE** | Căn chỉnh embedding 2 branches | $\lambda = 1.0$ |
+| **DWBL** | Hard negative mining tự động | $\lambda = 1.0$ |
 
-### Tầng 2: Embedding & Metric Learning
-| Loss | Mục đích | Trọng số khởi đầu |
+### Tầng 2: Slot Quality (Epoch 30-60)
+| Loss | Mục đích | Trọng số |
 |---|---|---|
-| **DWBL** (Dynamic Weighted Batch-tuple) | Hard negative mining tự động trong batch | $\lambda_4 = 1.0$ |
-| **Symmetric InfoNCE** | Căn chỉnh không gian nhúng 2 branches | $\lambda_5 = 1.0$ |
-| **CVD Loss** (Content-Viewpoint Disentangle) | Tách "nội dung" khỏi "góc nhìn" | $\lambda_6 = 0.5$ |
+| **Contrastive Slot Matching** | Tối đa MI giữa matched slots | $\lambda = 0.5$ |
+| **Dice Loss** | Giải quyết scale imbalance | $\lambda = 0.3$ |
 
-### Tổng Loss:
-$$\mathcal{L}_{total} = \lambda_1 \mathcal{L}_{CSM} + \lambda_2 \mathcal{L}_{MESH} + \lambda_3 \mathcal{L}_{Dice} + \lambda_4 \mathcal{L}_{DWBL} + \lambda_5 \mathcal{L}_{InfoNCE} + \lambda_6 \mathcal{L}_{CVD}$$
-
-> **🔧 Có thể thay đổi:** Các $\lambda$ nên được điều chỉnh qua ablation study. Bắt đầu với giá trị trên, sau đó grid search trên validation set.
-> 
-> **⚠️ Lưu ý thực tế:** Nên bật Loss từng tầng (stage-wise training), không bật tất cả cùng lúc từ epoch 1:
-> - **Epoch 1-30:** Chỉ bật InfoNCE + DWBL (học embedding cơ bản trước)
-> - **Epoch 30-60:** Thêm Contrastive Slot Matching + Dice (refinement Slot quality)
-> - **Epoch 60+:** Thêm MESH + CVD (fine-tuning hard matching + disentanglement)
+### Background Regularization (Always active)
+| Loss | Mục đích | Trọng số |
+|---|---|---|
+| **Entropy Regularization** | Ngăn mask collapse | $\lambda = 0.01$ |
+| **Adaptive Hinge Coverage** | Đảm bảo coverage ≥ γ | $\lambda = 0.01$ |
 
 ---
 
 ## 4. Chiến thuật Dataset: Train / Test / Benchmark
-
-### 4.1. Phân vai Dataset
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    VAI TRÒ CỦA TỪNG DATASET                    │
 ├─────────────────┬───────────────────────────────────────────────┤
 │ University-1652 │ 🎯 MAIN BENCHMARK #1                        │
-│                 │ • Train + Test trực tiếp                     │
-│                 │ • Tác vụ: Drone→Sat, Sat→Drone               │
-│                 │ • Metric: Recall@1, Recall@5, AP             │
-│                 │ • Thử thách: Multi-altitude, scale variation │
+│                 │ • Drone→Sat, Sat→Drone                       │
+│                 │ • Multi-altitude, scale variation             │
+│                 │ • FGW giải quyết geometric homography         │
 ├─────────────────┼───────────────────────────────────────────────┤
 │ VIGOR           │ 🎯 MAIN BENCHMARK #2                        │
-│                 │ • Train + Test (Same-Area & Cross-Area)      │
-│                 │ • Tác vụ: Panorama→Sat                       │
-│                 │ • Metric: Hit Rate, Recall@1                 │
-│                 │ • Thử thách: Decentrality, many-to-many      │
+│                 │ • Panorama→Sat (Same-Area & Cross-Area)      │
+│                 │ • Cross-Area: Slot Attention >> Texture-based │
 ├─────────────────┼───────────────────────────────────────────────┤
 │ CVUSA           │ 📊 SHOWCASE / SATURATION                    │
-│                 │ • Train + Test                               │
-│                 │ • Chỉ dùng để chứng minh method ≥ 99%       │
-│                 │ • Không phải main contribution               │
-│                 │ • SOTA hiện tại ~99.67%, ta cần ≥ đó        │
+│                 │ • Mục tiêu ≥ 99% R@1                        │
 ├─────────────────┼───────────────────────────────────────────────┤
 │ CV-Cities       │ 🌍 GENERALIZATION TEST                      │
-│                 │ • Train trên subset → Test cross-city        │
-│                 │ • Chứng minh khả năng tổng quát hóa toàn cầu│
-│                 │    (châu Á, châu Âu, châu Mỹ...)            │
-│                 │ • Metric: Recall@1 cross-city                │
+│                 │ • Cross-city generalization                   │
 └─────────────────┴───────────────────────────────────────────────┘
 ```
 
-### 4.2. Chiến thuật Training
+### Target SOTA
 
-#### Giai đoạn 1: Pre-training Backbone (Warm-up)
-- **Dữ liệu:** University-1652 (nhỏ gọn, 3 view types, dễ converge)
-- **Mục tiêu:** Cho Vision Mamba học cách trích xuất feature cross-view cơ bản
-- **Loss:** InfoNCE + DWBL only
-- **Epochs:** ~30 epochs, lr=1e-4, cosine decay
-- **Batch size:** 32 (H100 đủ VRAM)
-
-#### Giai đoạn 2: Slot Training (Module Refinement)
-- **Dữ liệu:** University-1652 (tiếp tục)
-- **Mục tiêu:** Train Slot Attention + Register Slots + Background Suppression
-- **Loss:** Thêm Contrastive Slot Matching + Dice
-- **Epochs:** +30 epochs, lr=5e-5
-- **Freeze:** Backbone Mamba (chỉ train Slot head)
-
-#### Giai đoạn 3: Graph + OT (Full Pipeline)
-- **Dữ liệu:** University-1652 → chuyển sang VIGOR
-- **Mục tiêu:** Train toàn bộ pipeline (Graph Mamba + Sinkhorn OT)
-- **Loss:** Full Multi-Layer Joint Loss
-- **Epochs:** +40 epochs, lr=2e-5
-- **Unfreeze all:** End-to-end fine-tuning
-
-#### Giai đoạn 4: Generalization (Cross-dataset)
-- **Dữ liệu:** CV-Cities (16 cities)
-- **Mục tiêu:** Fine-tune trên subset cities → test cross-city
-- **Chiến thuật:** Leave-one-city-out hoặc train trên 12 cities, test trên 4 cities
-- **Expected:** Chứng minh model generalizes tốt qua các đô thị khác nhau
-
-#### CVUSA Run (Showcase)
-- **Dữ liệu:** CVUSA
-- **Mục tiêu:** Chỉ cần đạt ≥ 99% Recall@1 để report trong paper
-- **Chiến thuật:** Fine-tune model từ Giai đoạn 3 trên CVUSA ~10-15 epochs
-
-### 4.3. Testing & Evaluation Protocol
-
-| Dataset | Split | Metrics chính | Mục tiêu SOTA |
+| Dataset | Split | Metric | Mục tiêu |
 |---|---|---|---|
-| University-1652 | Drone→Sat | Recall@1, AP | > 85% (hiện tại ~78%) |
-| University-1652 | Sat→Drone | Recall@1, AP | > 85% |
+| University-1652 | Drone→Sat | Recall@1, AP | > 85% |
 | VIGOR Same-Area | Pano→Sat | Hit Rate@1 | > 95% |
-| VIGOR Cross-Area | Pano→Sat | Hit Rate@1 | > 25% (hiện tại ~20.72%) |
-| CVUSA | Pano→Sat | Recall@1 | ≥ 99% (showcase) |
-| CV-Cities | Cross-city | Recall@1 | Report top (no prior baseline) |
+| VIGOR Cross-Area | Pano→Sat | Hit Rate@1 | > 25% |
+| CVUSA | Pano→Sat | Recall@1 | ≥ 99% |
 
 ---
 
 ## 5. Ablation Studies (Bắt buộc cho Paper)
 
-Các thí nghiệm cần chạy để chứng minh đóng góp từng module:
-
 | # | Thí nghiệm | Mục đích |
 |---|---|---|
-| 1 | Mamba only (no Slot, no Graph) | Baseline backbone |
-| 2 | Mamba + Slot Attention (no Graph, no OT) | Hiệu quả của Slot |
-| 3 | Mamba + Slot + Register Slots | Hiệu quả của Background Suppression |
-| 4 | Mamba + Slot + Graph Mamba (no OT) | Hiệu quả của Relational Reasoning |
-| 5 | Full pipeline (with OT + MESH) | **Proposed method** |
-| 6 | Full pipeline + CVD Loss | Hiệu quả của Content-Viewpoint Disentanglement |
-| 7 | Thay Mamba bằng ViT-B/16 | So sánh backbone efficiency |
-| 8 | Thay Graph Mamba bằng GCN | So sánh graph reasoning method |
-| 9 | Thay Sinkhorn OT bằng Cosine Similarity | So sánh matching strategy |
+| 1 | Mamba Vision vs ViT | Latency + Peak Memory benchmark |
+| 2 | + Slot Attention | Hiệu quả Object-Centric decomposition |
+| 3 | + Register + Adaptive BG Mask | So sánh adaptive vs static (α=0.7) |
+| 4 | + Graph Mamba (Hilbert) | So sánh Hilbert vs Raster-Scan ordering |
+| 5 | + FGW matching | So sánh FGW vs Sinkhorn OT |
+| 6 | **Full UFGW** | **Proposed method** |
+| 7 | Rotation Robustness | R@1 stability under 0°-360° rotation |
+| 8 | Interpretability | Slot Heatmaps + FGW Transport visualization |
 
 ---
 
@@ -236,11 +180,11 @@ Các thí nghiệm cần chạy để chứng minh đóng góp từng module:
 
 | Rủi ro | Xác suất | Phương án |
 |---|---|---|
-| Slot Attention không converge trên CVGL data | Trung bình | Thử Guided Slot (dùng CAM làm prior) thay vì pure unsupervised |
-| Sinkhorn không ổn định (NaN/Inf) | Trung bình | Giảm $\epsilon$, thêm gradient clipping, fallback sang EMD |
-| VRAM không đủ cho full pipeline trên H100 | Thấp | Giảm image resolution (384→256), giảm num_slots, dùng gradient checkpointing |
-| VIGOR Cross-Area quá khó | Cao | Chấp nhận cải thiện nhỏ (5-10%), highlight rằng đây là unsolved problem |
-| Graph Mamba chưa có implementation ổn định | Trung bình | Fallback sang GAT + linear scan, hoặc tự implement dựa trên Mamba codebase |
+| FGW chậm hơn Sinkhorn | Trung bình | Giảm fgw_iters, dùng approximation |
+| Hilbert curve implementation phức tạp | Thấp | Fallback sang Z-order (Morton code) |
+| UFGW gradient không ổn | Trung bình | Giảm KL penalty, warm-up từ balanced → unbalanced |
+| Slot Attention không converge | Trung bình | Guided Slot (CAM prior) |
+| VRAM không đủ | Thấp | Gradient checkpointing, giảm resolution |
 
 ---
 
@@ -248,10 +192,9 @@ Các thí nghiệm cần chạy để chứng minh đóng góp từng module:
 
 | Tuần | Công việc | Output |
 |---|---|---|
-| 1 | Setup codebase, DataLoader 4 datasets, test trên Kaggle H100 | Code chạy được |
-| 2 | Implement Vision Mamba backbone + CGP head | Baseline Recall@1 |
-| 3 | Implement Slot Attention + Register Slots + Background Mask | Module B+C hoạt động |
-| 4 | Implement Graph Mamba + Sinkhorn OT | Full pipeline |
-| 5-6 | Train Giai đoạn 1-3 trên University-1652 & VIGOR | Main results |
-| 7 | Ablation studies + CV-Cities generalization test + CVUSA showcase | Ablation table |
-| 8 | Viết paper / báo cáo + hình vẽ kiến trúc | Draft paper |
+| 1 | Setup + DataLoader + Mamba backbone | Baseline R@1 |
+| 2 | Adaptive Mask + Slot Attention + Register | Module B+C |
+| 3 | Hilbert Graph Mamba + FGW OT | Full pipeline |
+| 4-5 | Train University-1652 & VIGOR | Main results |
+| 6 | Ablation studies + CV-Cities + CVUSA | Tables |
+| 7 | Viết paper ACM MM + hình kiến trúc | Draft |

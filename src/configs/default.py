@@ -20,9 +20,15 @@ class ModelConfig:
     gm_layers: int = 2                  # Graph Mamba layers
     k_neighbors: int = 5               # kNN graph neighbors
     sinkhorn_iters: int = 20
-    epsilon: float = 0.05              # Sinkhorn regularization
-    mesh_iters: int = 3                # MESH sharpening steps
+    epsilon: float = 0.05              # Entropic regularization
+    mesh_iters: int = 3                # MESH sharpening steps (sinkhorn only)
     embed_dim_out: int = 512           # Final embedding dimension
+    # GeoSlot 2.0 — FGW & Hilbert parameters
+    matching: str = 'fgw'              # 'fgw' (default) or 'sinkhorn' (ablation)
+    lambda_fgw: float = 0.5            # FGW trade-off: feature (0) vs structure (1)
+    tau_kl: float = 0.1                # KL penalty for unbalanced FGW
+    fgw_iters: int = 10                # Number of FGW outer iterations
+    graph_order: str = 'hilbert'       # 'hilbert' (default), 'spatial', 'degree'
 
 
 @dataclass

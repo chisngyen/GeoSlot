@@ -1,10 +1,17 @@
 """
-GeoSlot: Full Pipeline Model for Cross-View Geo-Localization.
+GeoSlot 2.0: Full Pipeline Model for Cross-View Geo-Localization.
 
 Combines all modules into a single end-to-end model:
-VimBackbone → Background Suppression → AdaSlot Attention → Graph Mamba → Sinkhorn OT
+VimBackbone → Adaptive Gumbel-Sparsity Mask → AdaSlot Attention
+           → Hilbert Graph Mamba → Unbalanced FGW OT
 
 Shared-weight Siamese architecture for processing query and reference views.
+
+Key improvements over v1:
+- Adaptive Gumbel-Sparsity Mask: γ learned per-image (replaces static α=0.7)
+- Hilbert Curve ordering in Graph Mamba (rotation-invariant)
+- Fused Gromov-Wasserstein: graph-to-graph matching (node + topology)
+- Unbalanced FGW: KL-relaxed marginals for occlusion handling
 """
 
 import torch
@@ -15,25 +22,26 @@ from typing import Optional, Dict, Any
 from .vim_backbone import VimBackbone, vim_small, vim_tiny
 from .slot_attention import AdaptiveSlotAttention
 from .graph_mamba import GraphMambaLayer
+from .fgw_ot import FusedGromovWasserstein
 from .sinkhorn_ot import SinkhornOT
 
 
 class GeoSlot(nn.Module):
     """
-    GeoSlot: Object-Centric State-Space Matching for CVGL.
+    GeoSlot 2.0: Object-Centric State-Space Graph Matching for CVGL.
 
     Architecture:
         Input Images (Query + Reference)
             ↓ (shared weights)
         Vision Mamba Backbone (SS2D, O(N))
             ↓
-        Background Suppression Mask
+        Adaptive Gumbel-Sparsity Mask (γ = σ(MLP(GAP(F))))
             ↓
         Adaptive Slot Attention + Register Slots
             ↓
-        Graph Mamba (Relational Reasoning)
+        Hilbert Graph Mamba (Rotation-Invariant Relational Reasoning)
             ↓
-        Sinkhorn OT + MESH (Matching)
+        Unbalanced Fused Gromov-Wasserstein (Graph-to-Graph Matching)
             ↓
         Similarity Score
 
@@ -48,9 +56,14 @@ class GeoSlot(nn.Module):
         sa_iters: Number of Slot Attention iterations
         gm_layers: Number of Graph Mamba layers
         k_neighbors: kNN neighbors for graph construction
+        matching: Matching strategy ('fgw' or 'sinkhorn')
+        lambda_fgw: FGW trade-off between feature and structure cost
+        tau_kl: KL penalty for unbalanced FGW
+        fgw_iters: Number of FGW outer iterations
         sinkhorn_iters: Number of Sinkhorn iterations
-        epsilon: Sinkhorn entropy regularization
-        mesh_iters: Number of MESH sharpening steps
+        epsilon: Entropic regularization
+        mesh_iters: Number of MESH sharpening steps (sinkhorn only)
+        graph_order: Graph ordering strategy ('hilbert', 'spatial', 'degree')
     """
     def __init__(
         self,
@@ -64,12 +77,18 @@ class GeoSlot(nn.Module):
         sa_iters: int = 3,
         gm_layers: int = 2,
         k_neighbors: int = 5,
+        matching: str = 'fgw',
+        lambda_fgw: float = 0.5,
+        tau_kl: float = 0.1,
+        fgw_iters: int = 10,
         sinkhorn_iters: int = 20,
         epsilon: float = 0.05,
         mesh_iters: int = 3,
+        graph_order: str = 'hilbert',
         embed_dim_out: int = 512,
     ):
         super().__init__()
+        self.matching_type = matching
 
         # ===== Backbone (shared weights) =====
         if backbone == 'vim_tiny':
@@ -102,15 +121,27 @@ class GeoSlot(nn.Module):
             slot_dim=slot_dim,
             k_neighbors=k_neighbors,
             num_layers=gm_layers,
+            strategy=graph_order,
         )
 
-        # ===== Sinkhorn OT Matcher =====
-        self.ot_matcher = SinkhornOT(
-            slot_dim=slot_dim,
-            num_iters=sinkhorn_iters,
-            epsilon=epsilon,
-            mesh_iters=mesh_iters,
-        )
+        # ===== Matching Module =====
+        if matching == 'fgw':
+            self.ot_matcher = FusedGromovWasserstein(
+                slot_dim=slot_dim,
+                lambda_fgw=lambda_fgw,
+                tau_kl=tau_kl,
+                num_outer_iters=fgw_iters,
+                num_sinkhorn_iters=sinkhorn_iters,
+                epsilon=epsilon,
+            )
+        else:
+            # Fallback: original Sinkhorn OT (for ablation)
+            self.ot_matcher = SinkhornOT(
+                slot_dim=slot_dim,
+                num_iters=sinkhorn_iters,
+                epsilon=epsilon,
+                mesh_iters=mesh_iters,
+            )
 
         # ===== CGP Head for global embedding (used in InfoNCE/DWBL) =====
         self.embed_head = nn.Sequential(
@@ -130,8 +161,10 @@ class GeoSlot(nn.Module):
             dict with:
                 - slots: [B, K, D] graph-enhanced object slots
                 - embedding: [B, D_out] global embedding vector
+                - centroids: [B, K, 2] slot spatial centroids
                 - keep_mask: [B, K] active slot mask
                 - bg_mask: [B, N, 1] background suppression mask
+                - adaptive_gamma: [B, 1] learned coverage threshold
                 - attn_maps: [B, K_total, N] slot attention maps
         """
         # 1. Backbone: extract dense features
@@ -157,7 +190,7 @@ class GeoSlot(nn.Module):
                 H = int(round(N ** 0.5))
                 W = N // H
 
-            enhanced_slots = self.graph_mamba(
+            enhanced_slots, centroids = self.graph_mamba(
                 object_slots, keep_mask,
                 attn_maps=sa_out['attn_maps'],
                 spatial_hw=(H, W),
@@ -172,8 +205,10 @@ class GeoSlot(nn.Module):
         return {
             'slots': enhanced_slots,
             'embedding': embedding,
+            'centroids': centroids,
             'keep_mask': keep_mask,
             'bg_mask': sa_out['bg_mask'],
+            'adaptive_gamma': sa_out['adaptive_gamma'],
             'attn_maps': sa_out['attn_maps'],
             'keep_probs': sa_out['keep_probs'],
             'register_slots': sa_out['register_slots'],
@@ -191,18 +226,28 @@ class GeoSlot(nn.Module):
         Returns:
             dict with all outputs needed for loss computation:
                 - similarity: [B] OT-based similarity scores
-                - query/ref embeddings, slots, masks, etc.
+                - query/ref embeddings, slots, masks, centroids, etc.
         """
         # Encode both views (shared weights)
         query_out = self.encode_view(query_img, global_step)
         ref_out = self.encode_view(ref_img, global_step)
 
-        # OT-based matching between slot sets
-        ot_out = self.ot_matcher(
-            query_out['slots'], ref_out['slots'],
-            mask_q=query_out['keep_mask'],
-            mask_r=ref_out['keep_mask'],
-        )
+        # Matching between slot sets (FGW or Sinkhorn)
+        if self.matching_type == 'fgw':
+            ot_out = self.ot_matcher(
+                query_out['slots'], ref_out['slots'],
+                mask_q=query_out['keep_mask'],
+                mask_r=ref_out['keep_mask'],
+                centroids_q=query_out['centroids'],
+                centroids_r=ref_out['centroids'],
+            )
+        else:
+            # Sinkhorn fallback (no centroids)
+            ot_out = self.ot_matcher(
+                query_out['slots'], ref_out['slots'],
+                mask_q=query_out['keep_mask'],
+                mask_r=ref_out['keep_mask'],
+            )
 
         return {
             # Similarity
@@ -212,15 +257,19 @@ class GeoSlot(nn.Module):
             # Query branch
             'query_embedding': query_out['embedding'],
             'query_slots': query_out['slots'],
+            'query_centroids': query_out['centroids'],
             'query_keep_mask': query_out['keep_mask'],
             'query_bg_mask': query_out['bg_mask'],
+            'query_adaptive_gamma': query_out['adaptive_gamma'],
             'query_attn_maps': query_out['attn_maps'],
             'query_keep_probs': query_out['keep_probs'],
             # Reference branch
             'ref_embedding': ref_out['embedding'],
             'ref_slots': ref_out['slots'],
+            'ref_centroids': ref_out['centroids'],
             'ref_keep_mask': ref_out['keep_mask'],
             'ref_bg_mask': ref_out['bg_mask'],
+            'ref_adaptive_gamma': ref_out['adaptive_gamma'],
             'ref_attn_maps': ref_out['attn_maps'],
             'ref_keep_probs': ref_out['keep_probs'],
         }

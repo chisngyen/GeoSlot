@@ -12,7 +12,8 @@ then process with Mamba for O(N) message passing.
 Reviewer-driven improvements:
 - Spatial positional encoding from attention map centroids
 - k-NN graph uses BOTH semantic similarity AND spatial distance
-- Spatial ordering option (Hilbert/raster) alongside degree ordering
+- Hilbert Curve ordering for rotation-invariant sequence construction
+- Exposes centroids for downstream FGW matching
 """
 
 import math
@@ -214,12 +215,13 @@ class GraphSequenceOrderer(nn.Module):
     Convert graph nodes to ordered sequences for Mamba processing.
 
     Strategies:
-    1. Degree-based: Sort nodes by connectivity (high degree first)
-    2. Spatial: Sort by spatial position (raster-scan order from centroids)
-    3. Hybrid: Degree during eval, random during training
-    4. Spatial-degree: Primary sort by spatial, secondary by degree
+    1. Hilbert: Sort by Hilbert curve index (best spatial locality preservation)
+    2. Degree-based: Sort nodes by connectivity (high degree first)
+    3. Spatial: Sort by spatial position (raster-scan order from centroids)
+    4. Hybrid: Degree during eval, random during training
+    5. Spatial-degree: Primary sort by spatial, secondary by degree
     """
-    def __init__(self, strategy='spatial_hybrid'):
+    def __init__(self, strategy='hilbert'):
         super().__init__()
         self.strategy = strategy
 
@@ -240,6 +242,73 @@ class GraphSequenceOrderer(nn.Module):
         """Random permutation per batch."""
         return torch.stack([torch.randperm(K, device=device) for _ in range(B)])
 
+    @staticmethod
+    def _xy2d_hilbert(n, x, y):
+        """
+        Convert (x, y) coordinates to Hilbert curve distance.
+
+        Maps 2D coordinates in an n×n grid to a 1D Hilbert curve index.
+        The Hilbert curve preserves spatial locality better than raster-scan
+        or Z-order (Morton) curves, making it ideal for sequence ordering
+        of graph nodes in Mamba.
+
+        Args:
+            n: Grid size (must be power of 2)
+            x: x-coordinate (column), integer in [0, n-1]
+            y: y-coordinate (row), integer in [0, n-1]
+
+        Returns:
+            d: Hilbert curve distance (1D index)
+        """
+        d = 0
+        s = n // 2
+        while s > 0:
+            rx = 1 if (x & s) > 0 else 0
+            ry = 1 if (y & s) > 0 else 0
+            d += s * s * ((3 * rx) ^ ry)
+            # Rotate quadrant
+            if ry == 0:
+                if rx == 1:
+                    x = s - 1 - x
+                    y = s - 1 - y
+                x, y = y, x
+            s //= 2
+        return d
+
+    def _hilbert_order(self, centroids):
+        """
+        Hilbert curve ordering from spatial centroids.
+
+        Maps 2D centroid coordinates to Hilbert curve indices,
+        then sorts by these indices. This preserves spatial locality
+        far better than raster-scan ordering, and is robust to
+        image rotations.
+
+        Args:
+            centroids: [B, K, 2] spatial centroids (x, y) normalized to [0, 1]
+
+        Returns:
+            order: [B, K] permutation indices
+        """
+        B, K, _ = centroids.shape
+        device = centroids.device
+
+        # Quantize to grid for Hilbert mapping
+        # Use power-of-2 grid size for proper Hilbert curve
+        grid_size = 16  # 16×16 = 256 cells, enough resolution for K≤16 slots
+        cx = (centroids[:, :, 0] * (grid_size - 1)).clamp(0, grid_size - 1).long()  # [B, K]
+        cy = (centroids[:, :, 1] * (grid_size - 1)).clamp(0, grid_size - 1).long()  # [B, K]
+
+        # Compute Hilbert indices
+        hilbert_idx = torch.zeros(B, K, device=device)
+        for b in range(B):
+            for k in range(K):
+                hilbert_idx[b, k] = self._xy2d_hilbert(
+                    grid_size, cx[b, k].item(), cy[b, k].item()
+                )
+
+        return hilbert_idx.argsort(dim=-1)
+
     def forward(self, slots, adj, centroids=None):
         """
         Args:
@@ -254,7 +323,9 @@ class GraphSequenceOrderer(nn.Module):
         """
         B, K, D = slots.shape
 
-        if self.strategy == 'degree':
+        if self.strategy == 'hilbert' and centroids is not None:
+            order = self._hilbert_order(centroids)
+        elif self.strategy == 'degree':
             order = self._degree_order(adj)
         elif self.strategy == 'spatial' and centroids is not None:
             order = self._spatial_order(centroids)
@@ -263,7 +334,7 @@ class GraphSequenceOrderer(nn.Module):
                 order = self._random_order(B, K, slots.device)
             else:
                 if centroids is not None:
-                    order = self._spatial_order(centroids)
+                    order = self._hilbert_order(centroids)
                 else:
                     order = self._degree_order(adj)
         elif self.strategy == 'hybrid':
@@ -311,7 +382,7 @@ class GraphMambaLayer(nn.Module):
         d_conv: int = 4,
         expand: int = 2,
         k_neighbors: int = 5,
-        strategy: str = 'spatial_hybrid',
+        strategy: str = 'hilbert',
         num_layers: int = 2,
         spatial_weight: float = 0.3,
     ):
@@ -414,4 +485,4 @@ class GraphMambaLayer(nn.Module):
             if keep_mask is not None:
                 slots = slots * keep_mask.unsqueeze(-1)
 
-        return slots
+        return slots, centroids

@@ -1,5 +1,5 @@
 """
-Adaptive Slot Attention with Register Slots and Background Suppression.
+Adaptive Slot Attention with Register Slots and Adaptive Gumbel-Sparsity Mask.
 
 Reference:
 - AdaSlot (CVPR 2024): https://github.com/amazon-science/AdaSlot
@@ -10,7 +10,7 @@ Key features:
 1. SlotAttention: GRU-based iterative routing with competitive softmax
 2. Gumbel selection: Adaptive K (number of active slots) via Gumbel-Softmax
 3. Register Slots: Dedicated noise-absorbing slots, discarded before matching
-4. Background Suppression Mask: Lightweight attention mask to filter transient objects
+4. Adaptive Gumbel-Sparsity Mask: γ learned from global features, replaces static α=0.7
 """
 
 import math
@@ -24,21 +24,33 @@ import torch.nn.functional as F
 # ============================================================================
 # Background Suppression Mask
 # ============================================================================
-class BackgroundSuppressionMask(nn.Module):
+class AdaptiveGumbelSparsityMask(nn.Module):
     """
-    Lightweight module to suppress transient/dynamic objects before Slot Attention.
+    Adaptive Gumbel-Sparsity Mask for dynamic background suppression.
 
-    Uses a small MLP head to predict a spatial attention mask that
-    down-weighs features from dynamic objects (cars, pedestrians, clouds)
-    that exist in ground-view but not in satellite imagery.
+    Replaces the static coverage target (α=0.7) with a learned threshold
+    γ = σ(MLP_global(GAP(F))) that adapts to image content.
 
-    Regularization (addresses reviewer concern):
+    Addresses the Static Coverage Fallacy:
+    - Desert/rural images (0% transient objects): γ → 1.0, keep 100%
+    - Dense urban images (60% transient): γ → 0.4, suppress 60%
+
+    Regularization:
     - Entropy regularization prevents mask collapse (all-0 or all-1)
-    - Coverage constraint ensures mask retains sufficient information
+    - Adaptive Hinge Loss: max(0, γ - mean(m)) replaces MSE coverage
     """
     def __init__(self, feature_dim, hidden_dim=64):
         super().__init__()
+        # Per-token mask prediction
         self.mask_head = nn.Sequential(
+            nn.Linear(feature_dim, hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, 1),
+            nn.Sigmoid()
+        )
+        # Adaptive coverage threshold from global features
+        # γ = σ(MLP_global(GAP(F))) ∈ (0, 1)
+        self.gamma_head = nn.Sequential(
             nn.Linear(feature_dim, hidden_dim),
             nn.ReLU(inplace=True),
             nn.Linear(hidden_dim, 1),
@@ -53,10 +65,16 @@ class BackgroundSuppressionMask(nn.Module):
         Returns:
             masked_features: [B, N, D] features with transient objects suppressed
             mask: [B, N, 1] suppression mask (1 = static/keep, 0 = transient/suppress)
+            gamma: [B, 1] adaptive coverage threshold
         """
         mask = self.mask_head(features)  # [B, N, 1]
         masked_features = features * mask
-        return masked_features, mask
+
+        # Compute adaptive threshold from global average pooling
+        gap = features.mean(dim=1)  # [B, D] — Global Average Pooling
+        gamma = self.gamma_head(gap)  # [B, 1]
+
+        return masked_features, mask, gamma
 
     def entropy_regularization(self, mask):
         """
@@ -77,21 +95,27 @@ class BackgroundSuppressionMask(nn.Module):
         # We MAXIMIZE entropy → MINIMIZE negative entropy
         return -entropy.mean()
 
-    def coverage_regularization(self, mask, target_ratio=0.7):
+    def adaptive_coverage_regularization(self, mask, gamma):
         """
-        Coverage constraint: mask should retain ~target_ratio of tokens.
+        Adaptive Hinge Loss for coverage constraint.
 
-        Prevents the mask from suppressing too much useful signal.
+        Replaces static MSE loss (mean(m) - 0.7)^2 with:
+        L = max(0, γ - mean(m))
+
+        This allows the model to learn the right coverage per image:
+        - Rural/desert: γ → 1.0, barely suppress anything
+        - Dense urban: γ → 0.4, aggressive suppression
 
         Args:
-            mask: [B, N, 1]
-            target_ratio: desired fraction of tokens to keep
+            mask: [B, N, 1] suppression mask
+            gamma: [B, 1] learned adaptive threshold
 
         Returns:
-            reg_loss: scalar coverage loss
+            reg_loss: scalar adaptive coverage loss
         """
-        mean_coverage = mask.mean()
-        return (mean_coverage - target_ratio) ** 2
+        mean_coverage = mask.mean(dim=1)  # [B, 1] — per-image coverage
+        hinge = F.relu(gamma - mean_coverage)  # [B, 1] — penalize under-coverage
+        return hinge.mean()
 
 
 # ============================================================================
@@ -323,8 +347,8 @@ class AdaptiveSlotAttention(nn.Module):
         self.slot_dim = slot_dim
         total_slots = max_slots + n_register
 
-        # Background suppression
-        self.bg_mask = BackgroundSuppressionMask(feature_dim)
+        # Adaptive Gumbel-Sparsity Mask (replaces static BackgroundSuppressionMask)
+        self.bg_mask = AdaptiveGumbelSparsityMask(feature_dim)
 
         # Slot initialization (learnable)
         self.slot_mu = nn.Parameter(torch.randn(1, total_slots, slot_dim) * (slot_dim ** -0.5))
@@ -361,13 +385,14 @@ class AdaptiveSlotAttention(nn.Module):
             object_slots: [B, K', D_slot] active object slots (K' ≤ max_slots)
             register_slots: [B, n_register, D_slot] register slots (for analysis only)
             bg_mask: [B, N, 1] background suppression mask
+            adaptive_gamma: [B, 1] learned coverage threshold
             attn_maps: [B, K_total, N] attention maps (for visualization)
             keep_probs: [B, max_slots] slot keep probabilities
         """
         B, N, D = features.shape
 
-        # 1. Background suppression
-        features_masked, bg_mask = self.bg_mask(features)
+        # 1. Adaptive background suppression (γ learned from global features)
+        features_masked, bg_mask, adaptive_gamma = self.bg_mask(features)
 
         # 2. Project features to slot dimension
         features_proj = self.input_proj(features_masked)  # [B, N, slot_dim]
@@ -396,6 +421,7 @@ class AdaptiveSlotAttention(nn.Module):
             'object_slots': object_slots,           # [B, max_slots, D]
             'register_slots': register_slots,       # [B, n_register, D]
             'bg_mask': bg_mask,                     # [B, N, 1]
+            'adaptive_gamma': adaptive_gamma,       # [B, 1]
             'attn_maps': attn_maps,                 # [B, K_total, N]
             'keep_decision': keep_decision,         # [B, max_slots]
             'keep_probs': keep_probs,               # [B, max_slots]
