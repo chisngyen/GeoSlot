@@ -137,19 +137,37 @@ class GeoSlot(nn.Module):
         # 1. Backbone: extract dense features
         features = self.backbone(x)  # [B, N, embed_dim]
 
-        # 2. Slot Attention: decompose into object slots
-        sa_out = self.slot_attention(features, global_step)
-        object_slots = sa_out['object_slots']     # [B, max_slots, slot_dim]
-        keep_mask = sa_out['keep_decision']        # [B, max_slots]
+        # Force float32 for all post-backbone ops:
+        # SlotAttention (GRU, softmax), Gumbel (log-log noise),
+        # GraphMamba (SSM blocks) are unstable in float16 under AMP.
+        with torch.cuda.amp.autocast(enabled=False):
+            features = features.float()
 
-        # 3. Graph Mamba: relational reasoning
-        enhanced_slots = self.graph_mamba(object_slots, keep_mask)  # [B, max_slots, slot_dim]
+            # 2. Slot Attention: decompose into object slots
+            sa_out = self.slot_attention(features, global_step)
+            object_slots = sa_out['object_slots']     # [B, max_slots, slot_dim]
+            keep_mask = sa_out['keep_decision']        # [B, max_slots]
 
-        # 4. Global embedding: weighted average of active slots
-        weights = keep_mask / (keep_mask.sum(dim=-1, keepdim=True) + 1e-8)  # [B, K]
-        global_slot = (enhanced_slots * weights.unsqueeze(-1)).sum(dim=1)    # [B, slot_dim]
-        embedding = self.embed_head(global_slot)  # [B, embed_dim_out]
-        embedding = F.normalize(embedding, dim=-1)
+            # 3. Graph Mamba: relational reasoning with spatial encoding
+            # Infer spatial dimensions from backbone output
+            N = features.shape[1]
+            H = W = int(N ** 0.5)
+            if H * W != N:
+                # For non-square feature maps (e.g., panoramic input)
+                H = int(round(N ** 0.5))
+                W = N // H
+
+            enhanced_slots = self.graph_mamba(
+                object_slots, keep_mask,
+                attn_maps=sa_out['attn_maps'],
+                spatial_hw=(H, W),
+            )
+
+            # 4. Global embedding: weighted average of active slots
+            weights = keep_mask / (keep_mask.sum(dim=-1, keepdim=True) + 1e-8)  # [B, K]
+            global_slot = (enhanced_slots * weights.unsqueeze(-1)).sum(dim=1)    # [B, slot_dim]
+            embedding = self.embed_head(global_slot)  # [B, embed_dim_out]
+            embedding = F.normalize(embedding, dim=-1)
 
         return {
             'slots': enhanced_slots,

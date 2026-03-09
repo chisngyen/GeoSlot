@@ -3,6 +3,7 @@
 # Import this at the top of each phase script:
 #   exec(open("geoslot_model.py").read())
 # =============================================================================
+import math
 import torch, torch.nn as nn, torch.nn.functional as F
 from transformers import AutoModel
 
@@ -47,7 +48,9 @@ class MambaVisionBackbone(nn.Module):
         for p in self.model.parameters(): p.requires_grad = True
         print("  [BACKBONE] Unfrozen")
     def forward(self, x):
-        _, features = self.model(x)
+        # Force float32: mamba_ssm selective-scan CUDA kernel is unstable in float16
+        with torch.cuda.amp.autocast(enabled=False):
+            _, features = self.model(x.float())
         feat = features[-1]
         B, C, H, W = feat.shape
         return feat.permute(0, 2, 3, 1).reshape(B, H * W, C)
@@ -112,6 +115,30 @@ class AdaptiveSlotAttention(nn.Module):
         return {"object_slots":obj*kd.unsqueeze(-1),"register_slots":reg,"bg_mask":bm,
                 "attn_maps":am,"keep_decision":kd,"keep_probs":kp}
 
+class SlotSpatialEncoder(nn.Module):
+    """Compute spatial centroids from attention maps and encode as positional features."""
+    def __init__(self, slot_dim, enc_dim=64):
+        super().__init__()
+        self.mlp = nn.Sequential(nn.Linear(enc_dim * 2 + 1, slot_dim), nn.GELU(), nn.Linear(slot_dim, slot_dim))
+        self.enc_dim = enc_dim
+    def _sinusoidal(self, vals, dim):
+        half = dim // 2
+        freq = torch.exp(torch.arange(half, device=vals.device, dtype=vals.dtype) * -(math.log(10000.0) / half))
+        args = vals.unsqueeze(-1) * freq
+        return torch.cat([args.sin(), args.cos()], dim=-1)
+    def forward(self, attn_maps, spatial_hw):
+        B, K, N = attn_maps.shape; H, W = spatial_hw
+        w = attn_maps / (attn_maps.sum(-1, True) + 1e-8)
+        gy = torch.arange(H, device=attn_maps.device).float() / max(H - 1, 1)
+        gx = torch.arange(W, device=attn_maps.device).float() / max(W - 1, 1)
+        grid_y, grid_x = torch.meshgrid(gy, gx, indexing='ij')
+        grid_y = grid_y.reshape(1, 1, -1).expand(B, K, -1)
+        grid_x = grid_x.reshape(1, 1, -1).expand(B, K, -1)
+        cy = (w * grid_y).sum(-1); cx = (w * grid_x).sum(-1)
+        spread = (w * ((grid_y - cy.unsqueeze(-1))**2 + (grid_x - cx.unsqueeze(-1))**2)).sum(-1).sqrt()
+        enc = torch.cat([self._sinusoidal(cy, self.enc_dim), self._sinusoidal(cx, self.enc_dim), spread.unsqueeze(-1)], dim=-1)
+        return self.mlp(enc)
+
 class SSMBlock(nn.Module):
     """SSM block: uses real Mamba if available, else LinearAttention fallback."""
     def __init__(self, d_model, d_state=16, d_conv=4, expand=2):
@@ -125,17 +152,40 @@ class SSMBlock(nn.Module):
         return x + self.core(self.norm(x))
 
 class GraphMambaLayer(nn.Module):
-    def __init__(self, d, nl=2):
+    def __init__(self, d, nl=2, spatial_weight=0.3):
         super().__init__()
+        self.spatial_weight = spatial_weight
+        self.spatial_enc = SlotSpatialEncoder(d)
         self.fwd=nn.ModuleList([SSMBlock(d) for _ in range(nl)])
         self.bwd=nn.ModuleList([SSMBlock(d) for _ in range(nl)])
         self.mrg=nn.ModuleList([nn.Linear(d*2,d) for _ in range(nl)])
         self.nrm=nn.ModuleList([nn.LayerNorm(d) for _ in range(nl)])
         self.ffn=nn.ModuleList([nn.Sequential(nn.LayerNorm(d),nn.Linear(d,d*4),nn.GELU(),nn.Linear(d*4,d)) for _ in range(nl)])
-    def forward(self, s, km=None):
+    def _spatial_order(self, s, attn_maps, spatial_hw):
+        """Raster-scan ordering based on slot centroids."""
+        B, K, N = attn_maps.shape; H, W = spatial_hw
+        w = attn_maps / (attn_maps.sum(-1, True) + 1e-8)
+        gy = torch.arange(H, device=s.device).float() / max(H - 1, 1)
+        gx = torch.arange(W, device=s.device).float() / max(W - 1, 1)
+        grid_y, grid_x = torch.meshgrid(gy, gx, indexing='ij')
+        grid_y = grid_y.reshape(1, 1, -1).expand(B, K, -1)
+        grid_x = grid_x.reshape(1, 1, -1).expand(B, K, -1)
+        cy = (w * grid_y).sum(-1); cx = (w * grid_x).sum(-1)
+        raster = cy * W + cx
+        return raster.argsort(dim=-1)
+    def forward(self, s, km=None, attn_maps=None, spatial_hw=None):
         B,K,D=s.shape
+        # Slice attn_maps to object slots only (exclude register slots)
+        if attn_maps is not None:
+            attn_maps = attn_maps[:, :K, :]
+        if attn_maps is not None and spatial_hw is not None:
+            s = s + self.spatial_enc(attn_maps, spatial_hw)
         for i in range(len(self.fwd)):
-            r=s; o=s.norm(dim=-1).argsort(dim=-1,descending=True)
+            r=s
+            if attn_maps is not None and spatial_hw is not None:
+                o = self._spatial_order(s, attn_maps, spatial_hw)
+            else:
+                o=s.norm(dim=-1).argsort(dim=-1,descending=True)
             bi=torch.arange(B,device=s.device).unsqueeze(1).expand(-1,K)
             so=s[bi,o]; f=self.fwd[i](so); b=self.bwd[i](so.flip(1)).flip(1)
             rv=o.argsort(dim=-1); m=self.mrg[i](torch.cat([f,b],-1))
@@ -149,10 +199,21 @@ class SinkhornOT(nn.Module):
         self.ni=ni; self.eps=eps; self.mi=mi
         self.cp=nn.Sequential(nn.Linear(d,d),nn.ReLU(True),nn.Linear(d,d))
     def forward(self, sq, sr, mq=None, mr=None):
-        C=torch.cdist(self.cp(sq),self.cp(sr),p=2.0); B,K,M=C.shape
+        sq=sq.float(); sr=sr.float()
+        if mq is not None: mq=mq.float()
+        if mr is not None: mr=mr.float()
+        pq = self.cp(sq); pr = self.cp(sr)
+        # Safe L2: torch.cdist backward has NaN at zero distance (sqrt'(0) = inf)
+        diff = pq.unsqueeze(2) - pr.unsqueeze(1)
+        C = (diff * diff).sum(-1).clamp(min=1e-6).sqrt()
+        B,K,M=C.shape
         lK=-C/self.eps
-        if mq is not None: lK=lK+torch.log(mq.unsqueeze(-1).clamp(1e-8))
-        if mr is not None: lK=lK+torch.log(mr.unsqueeze(-2).clamp(1e-8))
+        if mq is not None:
+            mu = mq / (mq.sum(-1, True) + 1e-8)
+            lK = lK + torch.log(mu.unsqueeze(-1).clamp(1e-8))
+        if mr is not None:
+            nu = mr / (mr.sum(-1, True) + 1e-8)
+            lK = lK + torch.log(nu.unsqueeze(-2).clamp(1e-8))
         la=torch.zeros(B,K,1,device=C.device); lb=torch.zeros(B,1,M,device=C.device)
         for _ in range(self.ni):
             la=-torch.logsumexp(lK+lb,2,True); lb=-torch.logsumexp(lK+la,1,True)
@@ -186,17 +247,22 @@ class GeoSlot(nn.Module):
             self.gap_proj = nn.Sequential(nn.LayerNorm(fdim), nn.Linear(fdim, edo))
 
     def encode_view(self, x, gs=None):
-        f = self.backbone(x)
-        if not self.use_slots:
-            e = F.normalize(self.gap_proj(f.mean(dim=1)), dim=-1)
-            return {"embedding": e, "slots": None, "keep_mask": None,
-                    "bg_mask": None, "attn_maps": None, "keep_probs": None, "register_slots": None}
-        sa = self.sa(f, gs)
-        s = sa["object_slots"]; km = sa["keep_decision"]
-        if self.use_graph:
-            s = self.gm(s, km)
-        w = km / (km.sum(-1, True) + 1e-8)
-        e = F.normalize(self.eh((s * w.unsqueeze(-1)).sum(1)), -1)
+        f = self.backbone(x)  # already float32
+        # Force float32: SlotAttention (GRU/softmax), Gumbel (log noise),
+        # GraphMamba (SSM) are NaN-prone in float16 under AMP.
+        with torch.cuda.amp.autocast(enabled=False):
+            f = f.float()
+            if not self.use_slots:
+                e = F.normalize(self.gap_proj(f.mean(dim=1)), dim=-1)
+                return {"embedding": e, "slots": None, "keep_mask": None,
+                        "bg_mask": None, "attn_maps": None, "keep_probs": None, "register_slots": None}
+            sa = self.sa(f, gs)
+            s = sa["object_slots"]; km = sa["keep_decision"]
+            if self.use_graph:
+                N = f.shape[1]; H = W = int(N ** 0.5)
+                s = self.gm(s, km, attn_maps=sa['attn_maps'], spatial_hw=(H, W))
+            w = km / (km.sum(-1, True) + 1e-8)
+            e = F.normalize(self.eh((s * w.unsqueeze(-1)).sum(1)), -1)
         return {"slots": s, "embedding": e, "keep_mask": km, "bg_mask": sa["bg_mask"],
                 "attn_maps": sa["attn_maps"], "keep_probs": sa["keep_probs"],
                 "register_slots": sa["register_slots"]}
@@ -235,8 +301,8 @@ class DWBL(nn.Module):
     def forward(self, q, r):
         B=q.shape[0]; s=q@r.t(); p=s.diag()
         mk=~torch.eye(B,dtype=torch.bool,device=s.device); n=s[mk].view(B,B-1)
-        w=F.softmax(n/self.t,-1); wn=(w*torch.exp((n-self.m)/self.t)).sum(-1)
-        pe=torch.exp(p/self.t); return (-torch.log(pe/(pe+wn+1e-8))).mean()
+        w=F.softmax(n/self.t,-1); wn=(w*torch.exp(((n-self.m)/self.t).clamp(max=20))).sum(-1)
+        pe=torch.exp((p/self.t).clamp(max=20)); return (-torch.log(pe/(pe+wn+1e-8))).mean()
 
 class ContrastiveSlotLoss(nn.Module):
     def __init__(self, t=0.5):
@@ -281,6 +347,12 @@ class JointLoss(nn.Module):
             ldi = self.dice(am, out.get("query_keep_mask"))
             if lc.requires_grad: total = total + ramp * 0.3 * lc
             if ldi.requires_grad: total = total + ramp * 0.1 * ldi
+        # BG mask regularization
+        qbm = out.get("query_bg_mask")
+        if qbm is not None and qbm.requires_grad:
+            ent = -(qbm * torch.log(qbm + 1e-8) + (1 - qbm) * torch.log(1 - qbm + 1e-8)).mean()
+            cov = (qbm.mean() - 0.7) ** 2
+            total = total + 0.01 * (ent + cov)
         st = 3 if epoch >= self.s3 else (2 if epoch >= self.s2 else 1)
         return {"total_loss": total, "loss_infonce": li.detach(), "loss_dwbl": ld.detach(),
                 "loss_csm": lc.detach() if isinstance(lc, torch.Tensor) and lc.requires_grad else lc,

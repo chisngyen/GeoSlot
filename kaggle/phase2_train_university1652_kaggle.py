@@ -68,6 +68,10 @@ OUTPUT_DIR   = "/kaggle/working"
 RESUME_FROM  = None  # Ví dụ: "/kaggle/working/best_model_cvusa.pth"
 # ==============================================================================
 
+# ★ QUICK TEST MODE — set True để chạy nhanh với ít data, xem pipeline chạy đúng chưa
+QUICK_TEST     = True
+QT_RATIO       = 0.20         # dùng 20% data
+
 # --- Model (giữ nguyên với Phase 1) ---
 BACKBONE_NAME  = "nvidia/MambaVision-L-1K"
 FEATURE_DIM    = 1568
@@ -86,17 +90,18 @@ IMG_SIZE       = 384   # University-1652 dùng ảnh lớn hơn CVUSA
 
 # --- Training ---
 BATCH_SIZE     = 32
-NUM_WORKERS    = 4
-EPOCHS         = 60
+NUM_WORKERS    = 4 if not QUICK_TEST else 2
+EPOCHS         = 60 if not QUICK_TEST else 20
 LR_BACKBONE    = 1e-5
 LR_HEAD        = 1e-4
 WEIGHT_DECAY   = 0.01
-WARMUP_EPOCHS  = 3
-FREEZE_BB      = 5
-EVAL_FREQ      = 5
-SAVE_FREQ      = 10
-S2_EPOCH       = 20
-S3_EPOCH       = 40
+WARMUP_EPOCHS  = 3 if not QUICK_TEST else 2
+FREEZE_BB      = 5 if not QUICK_TEST else 3
+EVAL_FREQ      = 5 if not QUICK_TEST else 2
+SAVE_FREQ      = 10 if not QUICK_TEST else 5
+S2_EPOCH       = 20 if not QUICK_TEST else 99   # QT: disable Stage 2/3
+S3_EPOCH       = 40 if not QUICK_TEST else 99
+WARMUP_LOSS    = 5 if not QUICK_TEST else 3
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -109,6 +114,8 @@ print(f"  mamba_ssm:  {'✓' if MAMBA_AVAILABLE else '✗ fallback'}")
 print(f"  Image size: {IMG_SIZE}×{IMG_SIZE}")
 print(f"  Batch:      {BATCH_SIZE} | Epochs: {EPOCHS}")
 print(f"  Resume:     {RESUME_FROM or 'None (train from scratch)'}")
+if QUICK_TEST:
+    print(f"  ★ QUICK TEST:  {int(QT_RATIO*100)}% data")
 print("=" * 70)
 
 
@@ -154,7 +161,9 @@ class MambaVisionBackbone(nn.Module):
         print("  [BACKBONE] Unfrozen (fine-tuning)")
 
     def forward(self, x):
-        _, features = self.model(x)
+        # Force float32: mamba_ssm selective-scan CUDA kernel is unstable in float16
+        with torch.cuda.amp.autocast(enabled=False):
+            _, features = self.model(x.float())
         feat = features[-1]
         B, C, H, W = feat.shape
         return feat.permute(0, 2, 3, 1).reshape(B, H * W, C)
@@ -269,9 +278,36 @@ class AdaptiveSlotAttention(nn.Module):
                 "attn_maps": attn_maps, "keep_decision": kd, "keep_probs": kp}
 
 
-class GraphMambaLayer(nn.Module):
-    def __init__(self, dim, num_layers=2):
+class SlotSpatialEncoder(nn.Module):
+    """Compute spatial centroids from attention maps and encode as positional features."""
+    def __init__(self, slot_dim, enc_dim=64):
         super().__init__()
+        self.mlp = nn.Sequential(nn.Linear(enc_dim * 2 + 1, slot_dim), nn.GELU(), nn.Linear(slot_dim, slot_dim))
+        self.enc_dim = enc_dim
+    def _sinusoidal(self, vals, dim):
+        half = dim // 2
+        freq = torch.exp(torch.arange(half, device=vals.device, dtype=vals.dtype) * -(math.log(10000.0) / half))
+        args = vals.unsqueeze(-1) * freq
+        return torch.cat([args.sin(), args.cos()], dim=-1)
+    def forward(self, attn_maps, spatial_hw):
+        B, K, N = attn_maps.shape; H, W = spatial_hw
+        w = attn_maps / (attn_maps.sum(-1, True) + 1e-8)
+        gy = torch.arange(H, device=attn_maps.device).float() / max(H - 1, 1)
+        gx = torch.arange(W, device=attn_maps.device).float() / max(W - 1, 1)
+        grid_y, grid_x = torch.meshgrid(gy, gx, indexing='ij')
+        grid_y = grid_y.reshape(1, 1, -1).expand(B, K, -1)
+        grid_x = grid_x.reshape(1, 1, -1).expand(B, K, -1)
+        cy = (w * grid_y).sum(-1); cx = (w * grid_x).sum(-1)
+        spread = (w * ((grid_y - cy.unsqueeze(-1))**2 + (grid_x - cx.unsqueeze(-1))**2)).sum(-1).sqrt()
+        enc = torch.cat([self._sinusoidal(cy, self.enc_dim), self._sinusoidal(cx, self.enc_dim), spread.unsqueeze(-1)], dim=-1)
+        return self.mlp(enc)
+
+
+class GraphMambaLayer(nn.Module):
+    def __init__(self, dim, num_layers=2, spatial_weight=0.3):
+        super().__init__()
+        self.spatial_weight = spatial_weight
+        self.spatial_enc = SlotSpatialEncoder(dim)
         self.fwd   = nn.ModuleList([SSMBlock(dim) for _ in range(num_layers)])
         self.bwd   = nn.ModuleList([SSMBlock(dim) for _ in range(num_layers)])
         self.merge = nn.ModuleList([nn.Linear(dim*2, dim) for _ in range(num_layers)])
@@ -280,11 +316,32 @@ class GraphMambaLayer(nn.Module):
             nn.Sequential(nn.LayerNorm(dim), nn.Linear(dim, dim*4), nn.GELU(), nn.Linear(dim*4, dim))
             for _ in range(num_layers)])
 
-    def forward(self, slots, keep_mask=None):
+    def _spatial_order(self, slots, attn_maps, spatial_hw):
+        """Raster-scan ordering based on slot centroids."""
+        B, K, N = attn_maps.shape; H, W = spatial_hw
+        w = attn_maps / (attn_maps.sum(-1, True) + 1e-8)
+        gy = torch.arange(H, device=slots.device).float() / max(H - 1, 1)
+        gx = torch.arange(W, device=slots.device).float() / max(W - 1, 1)
+        grid_y, grid_x = torch.meshgrid(gy, gx, indexing='ij')
+        grid_y = grid_y.reshape(1, 1, -1).expand(B, K, -1)
+        grid_x = grid_x.reshape(1, 1, -1).expand(B, K, -1)
+        cy = (w * grid_y).sum(-1); cx = (w * grid_x).sum(-1)
+        raster = cy * W + cx
+        return raster.argsort(dim=-1)
+
+    def forward(self, slots, keep_mask=None, attn_maps=None, spatial_hw=None):
         B, K, D = slots.shape
+        # Slice attn_maps to object slots only (exclude register slots)
+        if attn_maps is not None:
+            attn_maps = attn_maps[:, :K, :]
+        if attn_maps is not None and spatial_hw is not None:
+            slots = slots + self.spatial_enc(attn_maps, spatial_hw)
         for i in range(len(self.fwd)):
             res = slots
-            order = slots.norm(dim=-1).argsort(dim=-1, descending=True)
+            if attn_maps is not None and spatial_hw is not None:
+                order = self._spatial_order(slots, attn_maps, spatial_hw)
+            else:
+                order = slots.norm(dim=-1).argsort(dim=-1, descending=True)
             bi = torch.arange(B, device=slots.device).unsqueeze(1).expand(-1, K)
             ordered = slots[bi, order]
             f = self.fwd[i](ordered); b = self.bwd[i](ordered.flip(1)).flip(1)
@@ -303,11 +360,22 @@ class SinkhornOT(nn.Module):
         self.cost_proj = nn.Sequential(nn.Linear(dim, dim), nn.ReLU(True), nn.Linear(dim, dim))
 
     def forward(self, sq, sr, mq=None, mr=None):
-        C = torch.cdist(self.cost_proj(sq), self.cost_proj(sr), p=2.0)
+        # Force float32 for iterative Sinkhorn — float16 loses precision
+        sq = sq.float(); sr = sr.float()
+        if mq is not None: mq = mq.float()
+        if mr is not None: mr = mr.float()
+        pq = self.cost_proj(sq); pr = self.cost_proj(sr)
+        # Safe L2: torch.cdist backward has NaN at zero distance (sqrt'(0) = inf)
+        diff = pq.unsqueeze(2) - pr.unsqueeze(1)
+        C = (diff * diff).sum(-1).clamp(min=1e-6).sqrt()
         B, K, M = C.shape
         log_K = -C / self.epsilon
-        if mq is not None: log_K = log_K + torch.log(mq.unsqueeze(-1).clamp(min=1e-8))
-        if mr is not None: log_K = log_K + torch.log(mr.unsqueeze(-2).clamp(min=1e-8))
+        if mq is not None:
+            mu = mq / (mq.sum(-1, True) + 1e-8)
+            log_K = log_K + torch.log(mu.unsqueeze(-1).clamp(min=1e-8))
+        if mr is not None:
+            nu = mr / (mr.sum(-1, True) + 1e-8)
+            log_K = log_K + torch.log(nu.unsqueeze(-2).clamp(min=1e-8))
         la = torch.zeros(B, K, 1, device=C.device); lb = torch.zeros(B, 1, M, device=C.device)
         for _ in range(self.num_iters):
             la = -torch.logsumexp(log_K + lb, dim=2, keepdim=True)
@@ -335,11 +403,17 @@ class GeoSlot(nn.Module):
         self.embed_head     = nn.Sequential(nn.LayerNorm(slot_dim), nn.Linear(slot_dim, embed_dim_out))
 
     def encode_view(self, x, gs=None):
-        features  = self.backbone(x)
-        sa        = self.slot_attention(features, gs)
-        slots     = self.graph_mamba(sa["object_slots"], sa["keep_decision"])
-        w         = sa["keep_decision"] / (sa["keep_decision"].sum(dim=-1, keepdim=True) + 1e-8)
-        emb       = F.normalize(self.embed_head((slots * w.unsqueeze(-1)).sum(dim=1)), dim=-1)
+        features  = self.backbone(x)  # already float32
+        # Force float32: SlotAttention (GRU/softmax), Gumbel (log noise),
+        # GraphMamba (SSM) are all NaN-prone in float16 under AMP.
+        with torch.cuda.amp.autocast(enabled=False):
+            features = features.float()
+            sa        = self.slot_attention(features, gs)
+            N = features.shape[1]; H = W = int(N ** 0.5)
+            slots     = self.graph_mamba(sa["object_slots"], sa["keep_decision"],
+                                         attn_maps=sa['attn_maps'], spatial_hw=(H, W))
+            w         = sa["keep_decision"] / (sa["keep_decision"].sum(dim=-1, keepdim=True) + 1e-8)
+            emb       = F.normalize(self.embed_head((slots * w.unsqueeze(-1)).sum(dim=1)), dim=-1)
         return {"slots": slots, "embedding": emb, "keep_mask": sa["keep_decision"],
                 "bg_mask": sa["bg_mask"], "attn_maps": sa["attn_maps"],
                 "keep_probs": sa["keep_probs"], "register_slots": sa["register_slots"]}
@@ -382,8 +456,9 @@ class DWBL(nn.Module):
     def forward(self, q, r):
         B = q.shape[0]; sim = q @ r.t(); pos = sim.diag()
         neg = sim[~torch.eye(B, dtype=torch.bool, device=sim.device)].view(B, B-1)
-        wneg = (F.softmax(neg/self.t, dim=-1) * torch.exp((neg-self.m)/self.t)).sum(dim=-1)
-        return (-torch.log(torch.exp(pos/self.t) / (torch.exp(pos/self.t) + wneg + 1e-8))).mean()
+        wneg = (F.softmax(neg/self.t, dim=-1) * torch.exp(((neg-self.m)/self.t).clamp(max=20))).sum(dim=-1)
+        pe = torch.exp((pos/self.t).clamp(max=20))
+        return (-torch.log(pe / (pe + wneg + 1e-8))).mean()
 
 class ContrastiveSlotLoss(nn.Module):
     def __init__(self, temperature=0.5): super().__init__(); self.t = temperature
@@ -423,6 +498,12 @@ class JointLoss(nn.Module):
             ramp = min(1.0, (epoch - self.s2 + 1) / self.warmup)
             lcs = self.csm(out); ldi = self.dice(out["query_attn_maps"], out.get("query_keep_mask"))
             total = total + ramp * (self.lam_cs * lcs + self.lam_di * ldi)
+        # BG mask regularization
+        qbm = out.get("query_bg_mask")
+        if qbm is not None and qbm.requires_grad:
+            ent = -(qbm * torch.log(qbm + 1e-8) + (1 - qbm) * torch.log(1 - qbm + 1e-8)).mean()
+            cov = (qbm.mean() - 0.7) ** 2
+            total = total + 0.01 * (ent + cov)
         stage = 3 if epoch >= self.s3 else (2 if epoch >= self.s2 else 1)
         return {"total_loss": total, "loss_infonce": li.detach(), "loss_dwbl": ld.detach(),
                 "loss_csm": lcs.detach() if lcs.requires_grad else lcs,
@@ -482,6 +563,14 @@ class University1652Dataset(Dataset):
         print(f"  [Uni1652 train] {len(self.pairs)} drone-satellite pairs "
               f"from {len(os.listdir(drone_dir))} buildings")
 
+        # QUICK_TEST: limit train pairs
+        if QUICK_TEST:
+            import random; random.seed(42)
+            limit = max(16, int(len(self.pairs) * QT_RATIO))
+            if len(self.pairs) > limit:
+                self.pairs = random.sample(self.pairs, limit)
+                print(f"  [QUICK_TEST] Limited to {len(self.pairs)} train pairs")
+
     def _load_test(self, root):
         test = os.path.join(root, "test")
         # Tìm query (drone) folder
@@ -504,6 +593,22 @@ class University1652Dataset(Dataset):
 
         print(f"  [Uni1652 test] {len(self.query_imgs)} queries, "
               f"{len(self.gallery_imgs)} gallery")
+
+        # QUICK_TEST: limit test set
+        if QUICK_TEST:
+            import random; random.seed(42)
+            qlim = max(16, int(len(self.query_imgs) * QT_RATIO))
+            glim = max(16, int(len(self.gallery_imgs) * QT_RATIO))
+            if len(self.query_imgs) > qlim:
+                idx = random.sample(range(len(self.query_imgs)), qlim)
+                self.query_imgs = [self.query_imgs[i] for i in idx]
+                self.query_labels = [self.query_labels[i] for i in idx]
+            if len(self.gallery_imgs) > glim:
+                idx = random.sample(range(len(self.gallery_imgs)), glim)
+                self.gallery_imgs = [self.gallery_imgs[i] for i in idx]
+                self.gallery_labels = [self.gallery_labels[i] for i in idx]
+            print(f"  [QUICK_TEST] Limited to {len(self.query_imgs)} queries, "
+                  f"{len(self.gallery_imgs)} gallery")
 
     def __len__(self):
         return len(self.pairs) if self.split == "train" else len(self.query_imgs)
@@ -622,7 +727,7 @@ def main():
     head_p = sum(p.numel() for p in model.parameters()) - bb_p
     print(f"  Backbone: {bb_p:,} params | Head: {head_p:,} params | Total: {bb_p+head_p:,}")
 
-    criterion = JointLoss(stage2=S2_EPOCH, stage3=S3_EPOCH).to(DEVICE)
+    criterion = JointLoss(stage2=S2_EPOCH, stage3=S3_EPOCH, warmup=WARMUP_LOSS).to(DEVICE)
 
     optimizer = torch.optim.AdamW([
         {"params": model.backbone.parameters(), "lr": LR_BACKBONE},
@@ -635,7 +740,7 @@ def main():
         return 0.5 * (1 + math.cos(math.pi * (epoch - WARMUP_EPOCHS) /
                                     max(1, EPOCHS - WARMUP_EPOCHS)))
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, [lr_lambda, lr_lambda])
-    scaler    = GradScaler(enabled=DEVICE.type == "cuda")
+    scaler    = GradScaler(enabled=DEVICE.type == "cuda", init_scale=2048, growth_interval=1000)
 
     log = {"dataset": "university1652", "history": []}
     best_r1 = 0.0; gs = 0
@@ -653,6 +758,10 @@ def main():
             optimizer.zero_grad(set_to_none=True)
             with autocast(enabled=DEVICE.type == "cuda"):
                 out = model(q, g, gs); ld = criterion(out, epoch); loss = ld["total_loss"]
+            # --- NaN / Inf guard ---
+            if torch.isnan(loss) or torch.isinf(loss):
+                print(f"  [WARN] NaN/inf loss at step {gs}, skipping batch")
+                optimizer.zero_grad(set_to_none=True); gs += 1; continue
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)

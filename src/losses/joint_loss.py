@@ -39,6 +39,7 @@ class JointLoss(nn.Module):
         lambda_dwbl: float = 1.0,
         lambda_csm: float = 0.3,
         lambda_dice: float = 0.1,
+        lambda_bg_reg: float = 0.01,
         temperature: float = 0.07,
         stage2_epoch: int = 30,
         stage3_epoch: int = 60,
@@ -49,6 +50,7 @@ class JointLoss(nn.Module):
         self.lambda_dwbl = lambda_dwbl
         self.lambda_csm = lambda_csm
         self.lambda_dice = lambda_dice
+        self.lambda_bg_reg = lambda_bg_reg
         self.stage2_epoch = stage2_epoch
         self.stage3_epoch = stage3_epoch
         self.warmup_epochs = warmup_epochs
@@ -106,6 +108,26 @@ class JointLoss(nn.Module):
         else:
             losses['loss_csm'] = torch.tensor(0.0)
             losses['loss_dice'] = torch.tensor(0.0)
+
+        # ===== Background mask regularization (always active) =====
+        # Prevents mask collapse (all-0 or all-1)
+        loss_bg_reg = torch.tensor(0.0, device=total.device)
+        if 'query_bg_mask' in model_output and model_output['query_bg_mask'] is not None:
+            q_mask = model_output['query_bg_mask']
+            r_mask = model_output.get('ref_bg_mask')
+            # Entropy regularization
+            p = q_mask.squeeze(-1).clamp(1e-6, 1 - 1e-6)
+            entropy_q = -(p * p.log() + (1 - p) * (1 - p).log()).mean()
+            loss_bg_reg = -entropy_q  # maximize entropy
+            if r_mask is not None:
+                p_r = r_mask.squeeze(-1).clamp(1e-6, 1 - 1e-6)
+                entropy_r = -(p_r * p_r.log() + (1 - p_r) * (1 - p_r).log()).mean()
+                loss_bg_reg = (loss_bg_reg - entropy_r) / 2
+            # Coverage: keep ~70% of tokens
+            coverage_loss = (q_mask.mean() - 0.7) ** 2
+            loss_bg_reg = loss_bg_reg + coverage_loss
+            total = total + self.lambda_bg_reg * loss_bg_reg
+        losses['loss_bg_reg'] = loss_bg_reg.detach() if loss_bg_reg.requires_grad else loss_bg_reg
 
         # ===== Determine active stage =====
         if epoch >= self.stage3_epoch:

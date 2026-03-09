@@ -28,12 +28,13 @@ class BackgroundSuppressionMask(nn.Module):
     """
     Lightweight module to suppress transient/dynamic objects before Slot Attention.
 
-    Uses a small convolutional head to predict a spatial attention mask that
+    Uses a small MLP head to predict a spatial attention mask that
     down-weighs features from dynamic objects (cars, pedestrians, clouds)
     that exist in ground-view but not in satellite imagery.
 
-    The mask is learned via an auxiliary contrastive loss comparing masks
-    from paired query-reference views.
+    Regularization (addresses reviewer concern):
+    - Entropy regularization prevents mask collapse (all-0 or all-1)
+    - Coverage constraint ensures mask retains sufficient information
     """
     def __init__(self, feature_dim, hidden_dim=64):
         super().__init__()
@@ -56,6 +57,41 @@ class BackgroundSuppressionMask(nn.Module):
         mask = self.mask_head(features)  # [B, N, 1]
         masked_features = features * mask
         return masked_features, mask
+
+    def entropy_regularization(self, mask):
+        """
+        Entropy regularization to prevent mask collapse.
+
+        Encourages the mask to be neither all-1 (no suppression)
+        nor all-0 (suppress everything). Maximizes entropy of the
+        binary Bernoulli distribution at each spatial position.
+
+        Args:
+            mask: [B, N, 1] sigmoid mask values
+
+        Returns:
+            reg_loss: scalar entropy regularization loss
+        """
+        p = mask.squeeze(-1).clamp(1e-6, 1 - 1e-6)  # [B, N]
+        entropy = -(p * p.log() + (1 - p) * (1 - p).log())  # [B, N]
+        # We MAXIMIZE entropy → MINIMIZE negative entropy
+        return -entropy.mean()
+
+    def coverage_regularization(self, mask, target_ratio=0.7):
+        """
+        Coverage constraint: mask should retain ~target_ratio of tokens.
+
+        Prevents the mask from suppressing too much useful signal.
+
+        Args:
+            mask: [B, N, 1]
+            target_ratio: desired fraction of tokens to keep
+
+        Returns:
+            reg_loss: scalar coverage loss
+        """
+        mean_coverage = mask.mean()
+        return (mean_coverage - target_ratio) ** 2
 
 
 # ============================================================================

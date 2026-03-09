@@ -79,12 +79,12 @@ class DWBL(nn.Module):
         if self.dynamic_weight:
             # Dynamic weighting: harder negatives contribute more
             weights = self._compute_weights(neg_sim.detach())  # [B, B-1]
-            weighted_neg = (weights * torch.exp((neg_sim - self.margin) / self.temperature)).sum(dim=-1)
+            weighted_neg = (weights * torch.exp(((neg_sim - self.margin) / self.temperature).clamp(max=20))).sum(dim=-1)
         else:
-            weighted_neg = torch.exp((neg_sim - self.margin) / self.temperature).sum(dim=-1)
+            weighted_neg = torch.exp(((neg_sim - self.margin) / self.temperature).clamp(max=20)).sum(dim=-1)
 
         # Loss: soft margin ranking
-        pos_exp = torch.exp(pos_sim / self.temperature)
+        pos_exp = torch.exp((pos_sim / self.temperature).clamp(max=20))
         loss = -torch.log(pos_exp / (pos_exp + weighted_neg + 1e-8))
 
         return loss.mean()

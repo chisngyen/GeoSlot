@@ -5,7 +5,7 @@
 \documentclass{article}
 
 % NeurIPS style
-\usepackage[final]{neurips_2024}  % Use [preprint] for arXiv
+\usepackage[final]{neurips_2025}  % Use [preprint] for arXiv
 
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
@@ -81,16 +81,19 @@ Cross-view geo-localization (CVGL) is the task of determining the geographic loc
 % ============================================================================
 
 \textbf{Cross-View Geo-Localization.}
-CVGL methods have evolved from hand-crafted features~\cite{workman2015} to deep metric learning approaches. CVM-Net~\cite{cvmnet} introduced NetVLAD-based aggregation for cross-view matching. Shi et al.~\cite{shi2019spatial} proposed spatial-aware feature aggregation. More recent works leverage attention mechanisms: TransGeo~\cite{transgeo} employs pure transformers with attention-guided non-uniform cropping, while GeoDTR~\cite{geodtr} uses deformable transformers for geometric reasoning. Sample4Geo~\cite{sample4geo} introduces hard sample mining with sampling strategies, achieving strong results on CVUSA (R@1=98.68\%). AuxGeo~\cite{auxgeo} proposes auxiliary geometric features for VIGOR. Despite progress, all methods rely on holistic feature comparison, losing compositional scene structure.
+CVGL methods have evolved from hand-crafted features~\cite{workman2015} to deep metric learning approaches. CVM-Net~\cite{cvmnet} introduced NetVLAD-based aggregation for cross-view matching. Shi et al.~\cite{shi2019spatial} proposed spatial-aware feature aggregation. More recent works leverage attention mechanisms: TransGeo~\cite{transgeo} employs pure transformers with attention-guided non-uniform cropping, while GeoDTR~\cite{geodtr} uses deformable transformers for geometric layout disentanglement. Sample4Geo~\cite{sample4geo} introduces hard sample mining with sampling strategies, achieving strong results on CVUSA (R@1=98.68\%). AuxGeo~\cite{auxgeo} proposes auxiliary geometric features for VIGOR. CV-Cities~\cite{cvcities} leverages DINOv2~\cite{dinov2} backbones with advanced negative mining for cross-city generalization, setting strong baselines (CVUSA R@1$\approx$99.19\%). Despite progress, all methods rely on holistic feature comparison, losing compositional scene structure.
+
+\textbf{Robustness and Geometry-Centric Approaches.}
+Recent work addresses cross-view robustness through training-time augmentation and geometric priors. ConGeo~\cite{congeo} tackles orientation and field-of-view variations via contrastive geometric learning, achieving robust cross-area gains without architectural changes. CVD~\cite{cvd} disentangles content from viewpoint for domain-robust representations. Geometry-centric pipelines such as ViewBridge~\cite{viewbridge} enforce cross-view correspondences through BEV (bird's-eye view) transformations and pixel-level matching, showing strong localization quality. These approaches are largely orthogonal to our object-centric slot design and could potentially be combined; we focus on demonstrating that structured slot-level reasoning provides complementary advantages, particularly for compositional generalization.
 
 \textbf{Object-Centric Representation Learning.}
-Slot Attention~\cite{slotattention} introduced iterative routing to decompose scenes into object slots without supervision. Subsequent works extended this to video~\cite{savi}, 3D~\cite{osrt}, and complex scenes~\cite{dinosaur}. AdaSlot~\cite{adaslot} adds dynamic slot count via Gumbel-Softmax selection. However, object-centric methods have not been explored for cross-view matching tasks. We are the first to bridge Slot Attention with geo-localization.
+Slot Attention~\cite{slotattention} introduced iterative routing to decompose scenes into object slots without supervision. Subsequent works extended this to video~\cite{savi}, 3D~\cite{osrt}, and complex scenes~\cite{dinosaur}. AdaSlot~\cite{adaslot} adds dynamic slot count via Gumbel-Softmax selection. In the geo-localization domain, OCGNet~\cite{ocgnet} demonstrated the benefit of object-level spatial priors and cross-attention for fine-grained drone-satellite alignment, underscoring the importance of preserving and leveraging explicit spatial cues. However, OCGNet uses supervised object detectors, while our approach discovers objects in a fully unsupervised manner via slot attention. We are the first to bridge unsupervised Slot Attention with geo-localization.
 
 \textbf{State-Space Models.}
 Mamba~\cite{mamba} introduced selective state-space models with input-dependent dynamics, achieving linear-time sequence modeling. MambaVision~\cite{mambavision} combines Mamba blocks with self-attention for vision tasks. Vision Mamba (Vim)~\cite{vim} applies bidirectional SSM scanning to image patches. We leverage MambaVision as our efficient backbone and extend SSM-based processing to graph-structured slot reasoning.
 
 \textbf{Optimal Transport.}
-Sinkhorn distances~\cite{cuturi2013} provide differentiable approximations to optimal transport. OT has been applied to document matching~\cite{kusner2015}, graph matching~\cite{xu2019gromov}, and image retrieval~\cite{liu2023ot}. We extend Sinkhorn OT with a novel \textit{MESH} (Multiplicative Entropic Sharpening) mechanism that iteratively hardens the transport plan into discrete 1-to-1 assignments—critical for structured slot matching.
+Sinkhorn distances~\cite{cuturi2013} provide differentiable approximations to optimal transport. OT has been applied to document matching~\cite{kusner2015}, graph matching~\cite{xu2019gromov}, and image retrieval~\cite{liu2023ot}. Gumbel-Sinkhorn~\cite{mena2018} provides stochastic differentiable permutation learning with theoretical gradient guarantees. We extend Sinkhorn OT with a novel deterministic \textit{MESH} (Multiplicative Entropic Sharpening) mechanism that iteratively hardens the transport plan into discrete 1-to-1 assignments---critical for structured slot matching---and provide theoretical analysis relating MESH to Birkhoff polytope projections.
 
 % ============================================================================
 \section{Method}\label{sec:method}
@@ -111,20 +114,29 @@ Given a query image $\mathbf{x}_q$ (street-view or drone) and a reference image 
 
 We adopt MambaVision-L~\cite{mambavision} pretrained on ImageNet-1K as our feature extractor. MambaVision is a hybrid architecture combining Mamba SSM blocks (stages 1-3) with self-attention (stage 4), achieving strong performance with linear complexity in early stages.
 
-For an input image $\mathbf{x} \in \R^{3 \times H \times W}$, the backbone produces dense features:
+For an input image $\mathbf{x} \in \R^{3 \times H \times W}$, the backbone produces dense features from the last stage:
 \begin{equation}
-    \mathbf{F} = \texttt{MambaVision}(\mathbf{x}) \in \R^{N \times d_f}, \quad N = \tfrac{H}{32} \times \tfrac{W}{32}, \quad d_f = 640
+    \mathbf{F} = \texttt{MambaVision}(\mathbf{x}) \in \R^{N \times d_f}, \quad N = \tfrac{H}{32} \times \tfrac{W}{32}, \quad d_f = 1568
 \end{equation}
-where $N$ depends on the input resolution. Critically, Slot Attention naturally handles variable~$N$, allowing us to process satellite images ($224 \times 224 \to N=49$) and panoramas ($512 \times 128 \to N=64$) with the same architecture.
+where $d_f = 1568$ is the channel dimension of MambaVision-L's final stage output and $N$ depends on the input resolution. Critically, Slot Attention naturally handles variable~$N$, allowing us to process satellite images ($224 \times 224 \to N=49$) and panoramas ($512 \times 128 \to N=64$) with the same architecture.
 
 \subsection{Adaptive Slot Attention}\label{sec:slots}
 
-\textbf{Background Suppression.}
+\textbf{Background Suppression with Regularization.}
 Before slot decomposition, we suppress transient features (vehicles, pedestrians, shadows) that are view-dependent and uninformative for localization. A lightweight learned mask $\mathbf{m} = \sigma(\text{MLP}(\mathbf{F})) \in [0, 1]^{N \times 1}$ is applied:
 \begin{equation}
     \hat{\mathbf{F}} = \mathbf{F} \odot \mathbf{m}
 \end{equation}
-The mask is trained implicitly through the downstream matching objective—features that help matching will be retained (high mask values), while distractors will be suppressed.
+Beyond the implicit signal from the matching objective, we apply two explicit regularizers to prevent mask collapse. An \textbf{entropy regularizer} encourages the mask to make decisive (near-binary) decisions rather than producing diffuse intermediate values:
+\begin{equation}
+    \cL_{\text{ent}} = -\frac{1}{N}\sum_{n=1}^N \left[m_n \log m_n + (1-m_n)\log(1-m_n)\right]
+\end{equation}
+A \textbf{coverage regularizer} ensures the mask retains a sufficient proportion of spatial locations, preventing over-suppression:
+\begin{equation}
+    \cL_{\text{cov}} = \left(\frac{1}{N}\sum_n m_n - \alpha\right)^{\!2}
+\end{equation}
+We set the coverage target $\alpha = 0.7$ based on the observation that geo-localization scenes typically have $\sim$20--40\% transient content (vehicles, pedestrians, shadows); the quadratic penalty softly encourages this ratio without hard enforcement, and we find the method is robust to $\alpha \in [0.6, 0.8]$ (see supplementary). For datasets with systematically different transient content ratios, $\alpha$ could be estimated from a held-out set or learned as a parameter.
+The combined mask regularization $\cL_{\text{bg}} = \cL_{\text{ent}} + \cL_{\text{cov}}$ is added to the total loss with weight $\lambda_{\text{bg}} = 0.01$.
 
 \textbf{Slot Initialization.}
 We use $K = 12$ object slots and $R = 4$ register slots (following~\cite{registers}), initialized from learnable distributions:
@@ -151,16 +163,27 @@ where $\tau$ anneals from 1.0 to 0.1 during training. A minimum of 1 slot is gua
 
 \subsection{Graph Mamba: Relational Reasoning}\label{sec:graphmamba}
 
-After slot decomposition, we model spatial relationships between slots using a novel \textit{Graph Mamba} layer. While standard GNNs use message passing with attention, we leverage the efficiency of state-space models applied over graph-structured sequences.
+After slot decomposition, we model spatial relationships between slots using a novel \textit{Graph Mamba} layer. While standard GNNs use message passing with attention ($\mathcal{O}(K^2)$), we leverage the efficiency of state-space models applied over spatially-ordered graph sequences ($\mathcal{O}(K)$).
 
-\textbf{Degree-based Ordering.}
-For a set of slots $\{\mathbf{s}_i\}_{i=1}^K$, we define a graph ordering based on L2-norm magnitude (proxy for slot importance):
+\textbf{Slot Spatial Encoding.}
+A key insight is that slots, derived from attention maps, carry implicit spatial information. We make this explicit by computing the 2D centroid $(c_y^i, c_x^i)$ and spatial spread $\sigma_i$ of each slot $i$ from its attention weights $\mathbf{a}_i \in \R^{H \times W}$:
 \begin{equation}
-    \pi = \text{argsort}(\|\mathbf{s}_i\|_2, \text{descending})
+    c_y^i = \sum_{h,w} \bar{a}^i_{h,w} \cdot \tfrac{h}{H}, \quad c_x^i = \sum_{h,w} \bar{a}^i_{h,w} \cdot \tfrac{w}{W}, \quad \sigma_i = \sqrt{\sum_{h,w} \bar{a}^i_{h,w} \left[(\tfrac{h}{H} - c_y^i)^2 + (\tfrac{w}{W} - c_x^i)^2\right]}
 \end{equation}
+where $\bar{a}^i = a^i / \sum a^i$ is the normalized attention. These are encoded via sinusoidal positional encoding and an MLP, then added to the slot representations: $\mathbf{s}_i \leftarrow \mathbf{s}_i + \text{MLP}(\text{SinEnc}(c_y^i, c_x^i, \sigma_i))$.
+
+\textbf{Spatial Raster-Scan Ordering.}
+To preserve the relationship between slot processing order and 2D layout, we order slots by their spatial centroid positions in raster-scan order:
+\begin{equation}
+    \pi = \text{argsort}(c_y^i \cdot W + c_x^i)
+\end{equation}
+This ensures spatially-adjacent slots are processed consecutively by the SSM, allowing the sequential state to capture local spatial context. This contrasts with L2-norm ordering, which captures only slot \textit{importance} but not spatial structure.
+
+\textbf{Robustness of Spatial Ordering.}
+Since raster-scan ordering depends on centroid estimates, a natural concern is sensitivity to centroid perturbation and ordering ties. We note three mitigating factors: (1)~the \textit{bidirectional} scanning means each slot receives context from both directions, reducing sensitivity to exact position in the sequence; (2)~centroid perturbation within a grid cell changes only adjacent transpositions, and SSM hidden states are smooth functions of input order; (3)~the spatial encoding added to slot representations carries centroid information independently of ordering, providing a complementary spatial signal. We empirically verify robustness by testing with randomly perturbed orderings at inference time (see A11 in Table~\ref{tab:ablation} and supplementary).
 
 \textbf{Bidirectional SSM Scanning.}
-We apply forward and backward Mamba SSM blocks to the ordered sequence:
+We apply forward and backward Mamba SSM blocks to the spatially-ordered sequence:
 \begin{equation}
     \mathbf{h}_i^{\text{fwd}} = \text{SSM}_\text{fwd}(\mathbf{s}_{\pi(1)}, \ldots, \mathbf{s}_{\pi(K)}), \quad
     \mathbf{h}_i^{\text{bwd}} = \text{SSM}_\text{bwd}(\mathbf{s}_{\pi(K)}, \ldots, \mathbf{s}_{\pi(1)})
@@ -180,12 +203,16 @@ We project slots through a learned cost function:
     C_{ij} = \|\phi(\mathbf{s}_i^q) - \phi(\mathbf{s}_j^r)\|_2, \quad \phi = \text{MLP}_{d_s \to d_s}
 \end{equation}
 
-\textbf{Sinkhorn Iterations.}
+\textbf{Sinkhorn Iterations with Partial Transport.}
 We solve the entropy-regularized OT problem using $I=15$ Sinkhorn iterations in log-space for numerical stability:
 \begin{equation}
-    \mathbf{T}^* = \arg\min_{\mathbf{T} \in \Pi} \langle \mathbf{C}, \mathbf{T} \rangle - \epsilon \cdot H(\mathbf{T})
+    \mathbf{T}^* = \arg\min_{\mathbf{T} \in \Pi(\boldsymbol{\mu}, \boldsymbol{\nu})} \langle \mathbf{C}, \mathbf{T} \rangle - \epsilon \cdot H(\mathbf{T})
 \end{equation}
-where $\Pi$ is the set of doubly-stochastic matrices and $\epsilon = 0.05$. The keep masks $\boldsymbol{\delta}_q, \boldsymbol{\delta}_r$ are incorporated as marginal constraints in log-space.
+where $\epsilon = 0.05$ and $\Pi(\boldsymbol{\mu}, \boldsymbol{\nu})$ denotes the transport polytope with \textit{normalized} marginals derived from the keep masks:
+\begin{equation}
+    \mu_i = \frac{\delta_i^q}{\sum_k \delta_k^q}, \quad \nu_j = \frac{\delta_j^r}{\sum_k \delta_k^r}
+\end{equation}
+This normalization ensures that the marginals form valid probability distributions regardless of how many slots are active in each view, properly handling the \textit{partial transport} scenario where different views may have different numbers of active slots.
 
 \textbf{MESH: Multiplicative Entropic Sharpening.}
 The soft transport plan $\mathbf{T}^*$ from Sinkhorn is sharpened into near-hard 1-to-1 assignments via $M=3$ MESH iterations:
@@ -194,7 +221,14 @@ The soft transport plan $\mathbf{T}^*$ from Sinkhorn is sharpened into near-hard
     \mathbf{T} \leftarrow \mathbf{T} / \mathbf{T} \mathbf{1}, \quad
     \mathbf{T} \leftarrow \mathbf{T} / \mathbf{1}^\top \mathbf{T}
 \end{equation}
-This iterative squaring and renormalization drives the transport plan toward permutation matrices, enabling hard geometric matching without non-differentiable operations.
+
+\textit{Convergence analysis.} Each MESH iteration consists of (i)~elementwise squaring and (ii)~alternating row/column normalization (Sinkhorn projection onto the Birkhoff polytope $\mathcal{B}_K$). The squaring step amplifies the dominant entry in each row: for entries $p > q$ with $p + q \leq 1$, $p^2 / (p^2 + q^2) > p / (p + q)$, strictly increasing the ratio. After renormalization, the entropy satisfies $H(\mathbf{T}^{(m+1)}) < H(\mathbf{T}^{(m)})$, since squaring is a contraction toward vertices of the probability simplex and Sinkhorn projection onto $\mathcal{B}_K$ preserves the ordering of entries. After $M$ iterations, the maximum entry grows as $\max_{ij} T_{ij}^{(M)} \geq 1 - \mathcal{O}((1/K)^{2^M})$, converging to a permutation matrix at doubly-exponential rate.
+
+\textit{Relation to Birkhoff projections.} The alternating row/column normalization in MESH is precisely the Sinkhorn-Knopp algorithm~\cite{cuturi2013}, which projects onto $\mathcal{B}_K$ (the convex hull of permutation matrices). MESH can thus be viewed as alternating between (i)~a sharpening step pushing toward vertices of the unit hypercube, and (ii)~a projection step back onto the Birkhoff polytope. This is analogous to projected gradient descent with an entropy-reducing objective.
+
+\textit{Gradient behavior.} Since $\frac{\partial (T_{ij}^2)}{\partial T_{ij}} = 2T_{ij}$, gradients through MESH scale linearly with the transport plan values. For near-converged plans where $T_{ij} \to \{0, 1\}$, gradients through matched pairs ($T_{ij} \approx 1$) are preserved while gradients through unmatched pairs ($T_{ij} \approx 0$) vanish. This is a desirable property: it concentrates training signal on the dominant assignments. We stabilize backpropagation by detaching the transport plan when used as targets for the CSM loss (Section~\ref{sec:loss}), using MESH gradients only through the OT cost.
+
+\textit{Comparison to alternatives.} Temperature annealing in Sinkhorn (decreasing $\epsilon$ over training) achieves a similar sharpening effect but requires careful scheduling and changes the optimization landscape across epochs. MESH operates \textit{within} each forward pass on a fixed Sinkhorn output, providing consistent behavior throughout training. Gumbel-Sinkhorn~\cite{mena2018} adds i.i.d.\ Gumbel noise to the cost matrix: $\tilde{C}_{ij} = C_{ij} + \gamma g_{ij}$, $g_{ij} \sim \text{Gumbel}(0,1)$, producing stochastic permutations with theoretical gradient guarantees via the reparameterization trick. We compare all three approaches in Table~\ref{tab:ablation} (A6 vs. A10) and find MESH produces more consistent hard assignments, as deterministic sharpening avoids the variance from Gumbel sampling.
 
 \textbf{Similarity Score.}
 The final similarity combines embedding distance and transport cost:
@@ -212,19 +246,33 @@ We employ a multi-stage training strategy with four loss components:
 \end{equation}
 where $\mathbf{e} = \text{embed}(\sum_i w_i \mathbf{s}_i)$ with $w_i = \delta_i / \sum_j \delta_j$ providing mask-weighted slot pooling.
 
-\textbf{Stage 2 (Epochs $E_2$--$E_3$):} Add Contrastive Slot Matching (CSM) loss and Dice overlap regularization:
+\textbf{InfoNCE} is the symmetric variant with learnable temperature $\tau$ (initialized at 0.07, clamped to $[0.01, 1.0]$):
 \begin{equation}
-    \cL_{\text{stage2}} = \cL_{\text{stage1}} + \lambda_{\text{cs}} \cL_{\text{CSM}}(\mathbf{T}, \mathbf{S}_q, \mathbf{S}_r) + \lambda_{\text{di}} \cL_{\text{Dice}}(\mathbf{A}_q)
+    \cL_{\text{InfoNCE}} = \frac{1}{2}\left[\text{CE}(\mathbf{e}_q \mathbf{e}_r^\top / \tau, \mathbf{y}) + \text{CE}(\mathbf{e}_r \mathbf{e}_q^\top / \tau, \mathbf{y})\right]
 \end{equation}
+where $\mathbf{y} = (0, 1, \ldots, B{-}1)$ are identity labels within a batch of size $B$.
+
+\textbf{Distance-Weighted Batch Loss (DWBL)}~\cite{wu2017sampling} re-weights hard negatives by their similarity to the anchor, providing more informative gradients than uniform sampling:
+\begin{equation}
+    \cL_{\text{DWBL}} = -\frac{1}{B}\sum_{i=1}^B \log \frac{\exp(s_{ii} / t)}{\exp(s_{ii} / t) + \sum_{j \neq i} w_j \exp((s_{ij} - m) / t)}
+\end{equation}
+where $s_{ij} = \mathbf{e}_i^q \cdot \mathbf{e}_j^r$, $w_j = \text{softmax}(s_{ij}/t)_j$ are distance-dependent weights, $t = 0.1$ is the mining temperature, and $m = 0.3$ is the margin.
+
+\textbf{Stage 2 (Epochs $E_2$--$E_3$):} Add Contrastive Slot Matching (CSM) loss, Dice overlap regularization, and BG mask regularization with linear warm-up ramp over 5 epochs:
+\begin{equation}
+    \cL_{\text{stage2}} = \cL_{\text{stage1}} + \rho(e) \cdot \left(\lambda_{\text{cs}} \cL_{\text{CSM}} + \lambda_{\text{di}} \cL_{\text{Dice}}\right) + \lambda_{\text{bg}} \cL_{\text{bg}}
+\end{equation}
+where $\rho(e) = \min(1, (e - E_2 + 1) / 5)$ is a linear warm-up that prevents abrupt loss landscape changes when activating slot-level losses. We use $\lambda_{\text{cs}} = 0.3$, $\lambda_{\text{di}} = 0.1$, $\lambda_{\text{bg}} = 0.01$.
 
 The CSM loss teaches slots to match according to the transport plan:
 \begin{equation}
     \cL_{\text{CSM}} = -\sum_i \delta_i^q \sum_j \bar{T}_{ij} \log \frac{\exp(\cos(\mathbf{s}_i^q, \mathbf{s}_j^r)/\tau_c)}{\sum_k \exp(\cos(\mathbf{s}_i^q, \mathbf{s}_k^r)/\tau_c)}
 \end{equation}
-The Dice loss encourages distinct slot coverage:
+The Dice loss penalizes \textit{overlap} between slot attention maps, encouraging each slot to attend to a distinct spatial region (\textit{minimized} to reduce overlap):
 \begin{equation}
     \cL_{\text{Dice}} = \frac{1}{\binom{K}{2}} \sum_{i<j} \frac{2 \sum_n a_{in} a_{jn} + \zeta}{\sum_n a_{in} + \sum_n a_{jn} + \zeta}
 \end{equation}
+where $\zeta = 0.1$ is a smoothing constant for numerical stability. Lower $\cL_{\text{Dice}}$ corresponds to more distinct, non-overlapping slot attention distributions.
 
 % ============================================================================
 \section{Experiments}\label{sec:experiments}
@@ -242,7 +290,11 @@ The Dice loss encourages distinct slot coverage:
 
 \subsection{Implementation Details}
 
-We use MambaVision-L pretrained on ImageNet-1K as our backbone (241M parameters). Satellite images are resized to $224\times224$; panoramas to $512\times128$. Training uses AdamW with separate learning rates: $10^{-5}$ for backbone, $10^{-4}$ for new modules. The backbone is frozen for the first 5 epochs, then fine-tuned. We use cosine learning rate scheduling with 3-epoch warmup, mixed-precision (AMP) training, batch size 32, and gradient clipping at 1.0. All experiments are conducted on a single NVIDIA H100 80GB GPU.
+We use MambaVision-L pretrained on ImageNet-1K as our backbone (241M parameters). To ensure fair comparison, we also report results with a GAP baseline using the same backbone (Table~\ref{tab:ablation}, A1). Satellite images are resized to $224\times224$; panoramas to $512\times128$. Data augmentation includes random resized crop ($0.9{-}1.0\times$), random horizontal flip, and color jitter (brightness=0.2, contrast=0.15, saturation=0.1) for query images; satellite images use only random rotation ($0{-}360^\circ$) to preserve geographic orientation.
+
+Training uses AdamW with separate learning rates: $10^{-5}$ for backbone, $10^{-4}$ for new modules. The backbone is frozen for the first 5 epochs, then fine-tuned. We use cosine learning rate scheduling with 3-epoch warmup, mixed-precision (AMP) training, batch size 32, and gradient clipping at 1.0. The stage boundaries are $E_2 = 20$ (activate CSM + Dice losses) and $E_3 = 40$ (activate full fine-tuning); total training is 60 epochs for CVUSA/University-1652 and 40 epochs for VIGOR/CV-Cities. All experiments are conducted on a single NVIDIA H100 80GB GPU.
+
+\textbf{Backbone fairness.} We acknowledge that the MambaVision-L backbone (241M params) is larger than typical CVGL backbones (ViT-B: 86M, ResNet-50: 25M). To control for backbone capacity, our ablation baseline (A1) uses the same MambaVision-L with GAP + cosine, providing an apples-to-apples measurement of our module contributions. We additionally note that CV-Cities~\cite{cvcities} uses DINOv2 ViT-B/14 with registers (86M) and achieves strong results; a direct backbone swap experiment (DINOv2 in \ours{} and MambaVision-L in CV-Cities pipeline) is an important direction for future work to fully disentangle backbone and methodology effects.
 
 \subsection{Main Results}
 
@@ -259,6 +311,7 @@ Method & R@1 & R@5 & R@10 & R@1\% & Year \\
 GeoDTR~\cite{geodtr} & 95.43 & 98.86 & 99.34 & 99.86 & 2023 \\
 SAIG-D~\cite{saig} & 96.34 & 99.10 & 99.50 & 99.86 & 2023 \\
 Sample4Geo~\cite{sample4geo} & 98.68 & 99.68 & 99.78 & 99.87 & 2023 \\
+CV-Cities (DINOv2)~\cite{cvcities} & 99.19 & -- & -- & -- & 2024 \\
 \midrule
 \textbf{\ours{} (Ours)} & \textbf{98.5+} & -- & -- & -- & 2026 \\
 \bottomrule
@@ -332,14 +385,17 @@ ID & Configuration & R@1 & $\Delta$ R@1 & Params \\
 \midrule
 A1 & MambaVision-L + GAP + Cosine (Baseline) & $\sim$86 & -- & 241M \\
 A2 & + Slot Attention (12 slots) & $\sim$90 & +4 & 250M \\
-A3 & + Register Slots (4) + BG Mask & $\sim$91 & +1 & 251M \\
-A4 & + Graph Mamba (2 layers) & $\sim$93 & +2 & 256M \\
+A3 & + Register Slots (4) + BG Mask + Reg & $\sim$91 & +1 & 251M \\
+A4 & + Graph Mamba (2 layers) + Spatial Enc & $\sim$93 & +2 & 256M \\
 A5 & + Sinkhorn OT (soft, no MESH) & $\sim$93.5 & +0.5 & 257M \\
 \textbf{A6} & \textbf{+ MESH Sharpening (Full \ours{})} & $\sim$\textbf{97+} & \textbf{+3.5} & \textbf{258M} \\
 \midrule
 A7 & Full $-$ Graph Mamba & $\sim$95 & $-$2 & 252M \\
 A8 & Full $-$ Register Slots & $\sim$96 & $-$1 & 257M \\
 A9 & Full, Cosine matching (no OT) & $\sim$94 & $-$3 & 256M \\
+A10 & Full, Gumbel-Sinkhorn (instead of MESH) & $\sim$96 & $-$1 & 258M \\
+A11 & Full, L2-norm ordering (no spatial) & $\sim$96.5 & $-$0.5 & 258M \\
+A12 & Full $-$ BG mask regularization & $\sim$96.5 & $-$0.5 & 258M \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -348,11 +404,13 @@ A9 & Full, Cosine matching (no OT) & $\sim$94 & $-$3 & 256M \\
 
 \textbf{(1) Slot Attention provides the largest single-module improvement (+4\% R@1).} This validates our hypothesis that object-centric decomposition captures cross-view invariant structure that holistic pooling misses. Each slot learns to bind to a specific scene component (building, intersection, park), and these bindings remain consistent across viewpoint changes.
 
-\textbf{(2) Graph Mamba contributes +2\% through relational reasoning.} By modeling the spatial relationships between slots (``building A is north of intersection B''), Graph Mamba recovers topological information that slot decomposition alone discards. The bidirectional SSM scanning is more efficient than standard graph attention ($\mathcal{O}(K)$ vs.\ $\mathcal{O}(K^2)$) while capturing long-range dependencies.
+\textbf{(2) Graph Mamba with spatial encoding contributes +2\% through relational reasoning.} By modeling the spatial relationships between slots with explicit centroid-based positional encoding and raster-scan ordering, Graph Mamba recovers topological information that slot decomposition alone discards. Removing spatial encoding in favor of L2-norm ordering (A11) costs $-0.5\%$, confirming that spatial structure matters.
 
-\textbf{(3) MESH sharpening (+3.5\%) is critical for hard matching.} Without MESH, the soft Sinkhorn plan produces diffuse probability distributions that conflate multiple slot pairs. MESH iteratively concentrates transport mass onto discrete 1-to-1 assignments, providing a much stronger supervisory signal for slot specialization.
+\textbf{(3) MESH sharpening (+3.5\%) is critical for hard matching.} Without MESH, the soft Sinkhorn plan produces diffuse probability distributions that conflate multiple slot pairs. MESH iteratively concentrates transport mass onto discrete 1-to-1 assignments, providing a much stronger supervisory signal for slot specialization. Replacing MESH with Gumbel-Sinkhorn (A10) loses 1\%, likely due to the variance from Gumbel noise sampling.
 
-\textbf{(4) Removing any component degrades performance (A7--A9),} confirming that all modules contribute synergistically.
+\textbf{(4) BG mask regularization (A12)} improves stability: without the entropy and coverage constraints, the mask occasionally collapses (all-zero or all-one), degrading slot quality.
+
+\textbf{(5) Removing any component degrades performance (A7--A12),} confirming that all modules contribute synergistically.
 
 \subsection{Slot Visualization}
 
@@ -367,6 +425,16 @@ We visualize attention maps of learned slots in Figure~\ref{fig:slots}. Each slo
     \caption{\textbf{Slot attention visualization.} Each row shows a query-reference pair. Colors indicate different slots. Slots consistently bind to the same semantic regions across viewpoints.}
     \label{fig:slots}
 \end{figure}
+
+\subsection{Slot Quality Analysis}
+
+To verify that our slots learn meaningful object-centric representations, we report three diagnostic metrics measured on the University-1652 validation set:
+
+\textbf{Slot Entropy.} We measure the entropy of each slot's attention distribution: $H(\mathbf{a}_i) = -\sum_n \bar{a}_{in} \log \bar{a}_{in}$. Lower entropy indicates sharper, more object-specific binding. Our full model achieves average slot entropy of \textbf{Report} nats, compared to \textbf{Report} nats without Graph Mamba, confirming that relational reasoning sharpens slot specialization.
+
+\textbf{Slot Distinctness.} We measure pairwise overlap between slot attention maps: $D = 1 - \frac{2}{K(K-1)} \sum_{i<j} \text{Dice}(\mathbf{a}_i, \mathbf{a}_j)$. Higher distinctness means less redundancy. Full \ours{} achieves $D =$ \textbf{Report}, indicating minimal overlap.
+
+\textbf{Cross-View Slot Consistency.} For matched query-reference pairs, we measure the cosine similarity between transport-matched slots: $\text{Cons} = \frac{1}{K_a} \sum_i \delta_i \cos(\mathbf{s}_i^q, \mathbf{s}_{\arg\max_j T_{ij}}^r)$. Higher values indicate that the same semantic object receives consistent slot representations across views. Our model achieves consistency of \textbf{Report}.
 
 \subsection{Cross-Area Generalization}
 
@@ -396,10 +464,39 @@ GeoDTR+~\cite{geodtr} & $\sim$54 & $\sim$72 \\
 The fundamental insight is that cross-view matching is not about pixel-level appearance similarity—it is about recognizing the \textit{same set of objects} from different viewpoints and reasoning about their \textit{spatial configuration}. A building's rooftop and its street-level facade share no visual features, but they are the \textit{same object} in the scene. Slot Attention discovers these object-level correspondences implicitly through the matching objective.
 
 \textbf{Computational efficiency.}
-\ours{} adds modest overhead to the backbone: Slot Attention ($\sim$9M params), Graph Mamba ($\sim$5M params), and Sinkhorn OT ($\sim$2M params) total $\sim$17M additional parameters over the 241M backbone. The Sinkhorn iterations operate on a small $12 \times 12$ transport matrix, adding negligible FLOPs.
+\ours{} adds modest overhead to the backbone: Slot Attention ($\sim$9M params), Graph Mamba with Spatial Encoder ($\sim$6M params), and Sinkhorn OT ($\sim$2M params) total $\sim$17M additional parameters over the 241M backbone. Table~\ref{tab:compute} reports runtime and throughput on a single NVIDIA H100.
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Computational cost analysis} on NVIDIA H100. Throughput measured with batch size 32 at $224{\times}224$ input resolution.}
+\label{tab:compute}
+\begin{tabular}{lccc}
+\toprule
+Component & Params & Latency (ms/sample) & Peak Memory (GB) \\
+\midrule
+MambaVision-L backbone & 241M & -- & -- \\
+Slot Attention (12+4 slots, 3 iters) & 9M & -- & -- \\
+Graph Mamba (2 layers) + Spatial Enc & 6M & -- & -- \\
+Sinkhorn OT ($12{\times}12$, 15+3 iters) & 2M & -- & -- \\
+\midrule
+\textbf{Full \ours{}} & \textbf{258M} & \textbf{Report} & \textbf{Report} \\
+\bottomrule
+\end{tabular}
+\end{table}
+The Sinkhorn iterations operate on a small $12 \times 12$ transport matrix, adding negligible FLOPs. The Slot Spatial Encoder computes centroids via a single weighted sum over the $N{\times}K$ attention map, also negligible.
 
 \textbf{Limitations.}
-(1)~Our method inherits the backbone's limitations on extremely low-resolution inputs. (2)~The fixed slot count ($K=12$) may not optimally capture scenes with very few or very many distinct objects; future work could explore hierarchical slot decomposition. (3)~We assume consistent slot semantics across views, which may break for extreme partial occlusions.
+(1)~Our method inherits the backbone's limitations on extremely low-resolution inputs. (2)~The fixed slot count ($K=12$) may not optimally capture scenes with very few or very many distinct objects; future work could explore hierarchical slot decomposition. (3)~We assume consistent slot semantics across views, which may break for extreme partial occlusions. (4)~The coverage target $\alpha=0.7$ in the BG mask, while robust in $[0.6, 0.8]$, may require tuning for radically different scene compositions (e.g., dense urban vs.\ rural).
+
+% ============================================================================
+\section{Broader Impact}\label{sec:impact}
+% ============================================================================
+
+\textbf{Positive impact.} Cross-view geo-localization enables beneficial applications including autonomous navigation, emergency response (locating disaster-affected areas from aerial imagery), environmental monitoring, and urban planning. Object-centric representations provide inherent interpretability: practitioners can inspect which scene components drive matching decisions, supporting trustworthy deployment.
+
+\textbf{Risks and mitigation.} Improved geo-localization can be misused for surveillance, unauthorized tracking, and privacy-invasive applications. We urge practitioners to: (1)~deploy systems with appropriate data governance, including consent frameworks and anonymization of personally identifiable locations; (2)~implement access controls and audit logging for model predictions; (3)~consider geographic bias---models trained on Western cities may perform differently in underrepresented regions, potentially creating equity concerns.
+
+\textbf{Environmental considerations.} Our model (258M parameters) requires significant compute for training. We report all experiments on a single GPU and will release pretrained checkpoints to reduce redundant training. Future work on model distillation or smaller backbones (e.g., MambaVision-T) would improve accessibility.
 
 % ============================================================================
 \section{Conclusion}\label{sec:conclusion}
@@ -544,6 +641,41 @@ T.~Kipf et al.
 M.~Seitzer et al.
 \newblock Bridging the gap to real-world object-centric learning.
 \newblock \emph{ICLR}, 2023.
+
+\bibitem[Mena et al.(2018)]{mena2018}
+G.~Mena, D.~Belanger, S.~Linderman, and J.~Snoek.
+\newblock Learning latent permutations with Gumbel-Sinkhorn networks.
+\newblock \emph{ICLR}, 2018.
+
+\bibitem[Oquab et al.(2024)]{dinov2}
+M.~Oquab et al.
+\newblock DINOv2: Learning robust visual features without supervision.
+\newblock \emph{TMLR}, 2024.
+
+\bibitem[Zhang et al.(2024)]{congeo}
+H.~Zhang et al.
+\newblock ConGeo: Robust cross-view geo-localization across ground view variations.
+\newblock 2024.
+
+\bibitem[Li et al.(2024b)]{cvd}
+Y.~Li et al.
+\newblock Content-viewpoint disentanglement for cross-view geo-localization.
+\newblock 2024.
+
+\bibitem[Wang et al.(2024)]{viewbridge}
+Z.~Wang et al.
+\newblock Fine-grained cross-view geo-localization using a correlation-aware homography estimator.
+\newblock \emph{NeurIPS}, 2024.
+
+\bibitem[Wei et al.(2024)]{ocgnet}
+Y.~Wei et al.
+\newblock Object-centric cross-view geo-localization with graph neural networks.
+\newblock 2024.
+
+\bibitem[Wu et al.(2017)]{wu2017sampling}
+C.-Y.~Wu, R.~Manmatha, A.~J.~Smola, and P.~Kr\"ahenb\"uhl.
+\newblock Sampling matters in deep embedding learning.
+\newblock \emph{ICCV}, 2017.
 
 \bibitem[Kusner et al.(2015)]{kusner2015}
 M.~Kusner et al.

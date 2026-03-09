@@ -6,10 +6,16 @@ Reference:
 - mamba_ssm: https://github.com/state-spaces/mamba
 
 Key concept: Convert a graph of object slots into ordered sequences
-using node-priority strategies (degree-based, semantic similarity),
+using node-priority strategies (degree-based, spatial centroid, hybrid),
 then process with Mamba for O(N) message passing.
+
+Reviewer-driven improvements:
+- Spatial positional encoding from attention map centroids
+- k-NN graph uses BOTH semantic similarity AND spatial distance
+- Spatial ordering option (Hilbert/raster) alongside degree ordering
 """
 
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -39,47 +45,154 @@ class LinearSequenceModel(nn.Module):
 
 
 # ============================================================================
-# Graph Construction from Slots
+# Spatial Positional Encoding from Attention Maps
+# ============================================================================
+class SlotSpatialEncoder(nn.Module):
+    """
+    Compute spatial positional encodings for slots from attention maps.
+
+    Each slot's attention over spatial tokens defines a soft spatial distribution.
+    We compute the centroid (weighted mean position) and spatial spread (std),
+    then encode them as positional features via sinusoidal encoding + MLP.
+
+    This addresses the reviewer concern:
+    "L2-norm ordering does not model spatial structure or slot positions explicitly"
+    """
+    def __init__(self, slot_dim, pos_dim=64):
+        super().__init__()
+        self.pos_dim = pos_dim
+        # Encode 2D centroid (x,y) + spread (σx, σy) → pos_dim features
+        # Input: 4 values (cx, cy, σx, σy) → sinusoidal → MLP → pos_dim
+        self.pos_mlp = nn.Sequential(
+            nn.Linear(4 * pos_dim, slot_dim),
+            nn.GELU(),
+            nn.Linear(slot_dim, slot_dim),
+        )
+
+    def _sinusoidal_encode(self, vals, dim):
+        """Sinusoidal positional encoding for arbitrary float values.
+        vals: [B, K, C]  → returns [B, K, C * dim]
+        """
+        device = vals.device
+        freqs = torch.arange(0, dim, 2, device=device, dtype=vals.dtype) / dim
+        freqs = 1.0 / (10000.0 ** freqs)  # [dim//2]
+        # vals: [B, K, C] → [B, K, C, 1]
+        vals_exp = vals.unsqueeze(-1)
+        # freqs: [dim//2] → [1, 1, 1, dim//2]
+        freqs_exp = freqs.view(1, 1, 1, -1)
+        angles = vals_exp * freqs_exp * math.pi
+        enc = torch.cat([angles.sin(), angles.cos()], dim=-1)  # [B, K, C, dim]
+        return enc.flatten(-2, -1)  # [B, K, C * dim]
+
+    def compute_centroids(self, attn_maps, H, W):
+        """
+        Compute slot centroids from attention maps.
+
+        Args:
+            attn_maps: [B, K, N] attention weights over N=H*W spatial tokens
+            H, W: spatial grid dimensions
+
+        Returns:
+            centroids: [B, K, 2] (x, y) normalized to [0, 1]
+            spreads:   [B, K, 2] (σx, σy) spatial spread
+        """
+        B, K, N = attn_maps.shape
+        device = attn_maps.device
+
+        # Create coordinate grid [N, 2]
+        gy = torch.arange(H, device=device, dtype=attn_maps.dtype) / max(H - 1, 1)
+        gx = torch.arange(W, device=device, dtype=attn_maps.dtype) / max(W - 1, 1)
+        grid_y, grid_x = torch.meshgrid(gy, gx, indexing='ij')
+        coords = torch.stack([grid_x.flatten(), grid_y.flatten()], dim=-1)  # [N, 2]
+
+        # Normalize attention to probability distribution over spatial dims
+        attn_prob = attn_maps / (attn_maps.sum(dim=-1, keepdim=True) + 1e-8)  # [B, K, N]
+
+        # Centroid = weighted mean position
+        centroids = torch.einsum('bkn,nc->bkc', attn_prob, coords)  # [B, K, 2]
+
+        # Spread = weighted std
+        coords_exp = coords.unsqueeze(0).unsqueeze(0)  # [1, 1, N, 2]
+        cent_exp = centroids.unsqueeze(2)               # [B, K, 1, 2]
+        diff_sq = (coords_exp - cent_exp) ** 2          # [B, K, N, 2]
+        variance = torch.einsum('bkn,bknc->bkc', attn_prob, diff_sq)  # [B, K, 2]
+        spreads = variance.sqrt().clamp(min=1e-4)
+
+        return centroids, spreads
+
+    def forward(self, attn_maps, H, W):
+        """
+        Args:
+            attn_maps: [B, K, N] slot attention maps
+            H, W: spatial grid dimensions
+
+        Returns:
+            pos_encoding: [B, K, slot_dim] spatial positional encoding
+        """
+        centroids, spreads = self.compute_centroids(attn_maps, H, W)  # [B,K,2] each
+        spatial_feats = torch.cat([centroids, spreads], dim=-1)       # [B, K, 4]
+        enc = self._sinusoidal_encode(spatial_feats, self.pos_dim)    # [B, K, 4*pos_dim]
+        return self.pos_mlp(enc)                                      # [B, K, slot_dim]
+
+
+# ============================================================================
+# Graph Construction from Slots (with spatial distance)
 # ============================================================================
 class SlotGraphBuilder(nn.Module):
     """
-    Build a kNN graph from object slots based on semantic similarity.
+    Build a kNN graph from object slots using BOTH semantic similarity
+    AND spatial distance (from attention map centroids).
 
-    Each slot becomes a node. Edges connect semantically similar slots,
-    weighted by cosine similarity. This captures spatial relationships
-    like "Building A is near Intersection B".
+    Addresses reviewer concern:
+    "Does not model spatial structure explicitly"
+
+    Args:
+        slot_dim: Dimension of slot features
+        k: Number of nearest neighbors
+        spatial_weight: Weight for spatial distance vs semantic similarity
     """
-    def __init__(self, slot_dim, k=5):
+    def __init__(self, slot_dim, k=5, spatial_weight=0.3):
         super().__init__()
         self.k = k
-        self.edge_proj = nn.Linear(slot_dim * 2, slot_dim)
+        self.spatial_weight = spatial_weight
 
-    def forward(self, slots, keep_mask=None):
+    def forward(self, slots, keep_mask=None, centroids=None):
         """
         Args:
             slots: [B, K, D] object slot representations
             keep_mask: [B, K] binary mask (1 = active slot)
+            centroids: [B, K, 2] spatial centroids (optional)
 
         Returns:
             adj_matrix: [B, K, K] adjacency matrix (weighted)
-            edge_features: [B, K, K, D] edge features for message passing
         """
         B, K, D = slots.shape
 
-        # Compute pairwise cosine similarity
+        # Semantic similarity
         slots_norm = F.normalize(slots, dim=-1)
-        sim = torch.bmm(slots_norm, slots_norm.transpose(1, 2))  # [B, K, K]
+        sim_semantic = torch.bmm(slots_norm, slots_norm.transpose(1, 2))  # [B, K, K]
+
+        # Combine with spatial proximity if available
+        if centroids is not None:
+            # Spatial distance → similarity (Gaussian kernel)
+            # Safe L2: torch.cdist backward has NaN at zero distance
+            diff_c = centroids.unsqueeze(2) - centroids.unsqueeze(1)
+            spatial_dist = (diff_c * diff_c).sum(-1).clamp(min=1e-6).sqrt()  # [B, K, K]
+            sim_spatial = torch.exp(-spatial_dist ** 2 / 0.1)        # [B, K, K]
+            sim = (1 - self.spatial_weight) * sim_semantic + self.spatial_weight * sim_spatial
+        else:
+            sim = sim_semantic
 
         # Mask inactive slots
         if keep_mask is not None:
-            mask_2d = keep_mask.unsqueeze(1) * keep_mask.unsqueeze(2)  # [B, K, K]
+            mask_2d = keep_mask.unsqueeze(1) * keep_mask.unsqueeze(2)
             sim = sim * mask_2d
 
         # Self-loop removal
         eye = torch.eye(K, device=slots.device).unsqueeze(0)
         sim = sim * (1 - eye)
 
-        # kNN selection: keep top-k neighbors per node
+        # kNN selection
         if K > self.k:
             topk_vals, topk_idx = sim.topk(self.k, dim=-1)
             adj = torch.zeros_like(sim)
@@ -100,56 +213,71 @@ class GraphSequenceOrderer(nn.Module):
     """
     Convert graph nodes to ordered sequences for Mamba processing.
 
-    Strategies (from Graph-Mamba paper):
-    1. Degree-based: Sort nodes by connectivity (high degree → processed first)
-    2. Random permutation: Stochastic ordering for robustness
-    3. Hybrid: Degree sort during eval, random during training
-
-    We use Hybrid strategy for our CVGL task.
+    Strategies:
+    1. Degree-based: Sort nodes by connectivity (high degree first)
+    2. Spatial: Sort by spatial position (raster-scan order from centroids)
+    3. Hybrid: Degree during eval, random during training
+    4. Spatial-degree: Primary sort by spatial, secondary by degree
     """
-    def __init__(self, strategy='hybrid'):
+    def __init__(self, strategy='spatial_hybrid'):
         super().__init__()
         self.strategy = strategy
 
     def _degree_order(self, adj):
         """Sort nodes by degree (number of connections)."""
-        degrees = adj.sum(dim=-1)  # [B, K]
+        degrees = adj.sum(dim=-1)
         return degrees.argsort(dim=-1, descending=True)
+
+    def _spatial_order(self, centroids):
+        """Raster-scan ordering from spatial centroids (top-left to bottom-right)."""
+        # Z-order / raster: sort by y first, then x → approximate spatial scan
+        B, K, _ = centroids.shape
+        # Quantize to grid for raster ordering
+        order_key = centroids[:, :, 1] * 1000 + centroids[:, :, 0]  # y * 1000 + x
+        return order_key.argsort(dim=-1)
 
     def _random_order(self, B, K, device):
         """Random permutation per batch."""
         return torch.stack([torch.randperm(K, device=device) for _ in range(B)])
 
-    def forward(self, slots, adj):
+    def forward(self, slots, adj, centroids=None):
         """
         Args:
             slots: [B, K, D]
             adj: [B, K, K] adjacency matrix
+            centroids: [B, K, 2] spatial centroids (optional)
 
         Returns:
-            ordered_slots: [B, K, D] reordered slots
-            order: [B, K] permutation indices
-            reverse_order: [B, K] inverse permutation
+            ordered_slots: [B, K, D]
+            order: [B, K]
+            reverse_order: [B, K]
         """
         B, K, D = slots.shape
 
         if self.strategy == 'degree':
             order = self._degree_order(adj)
-        elif self.strategy == 'random':
-            order = self._random_order(B, K, slots.device)
+        elif self.strategy == 'spatial' and centroids is not None:
+            order = self._spatial_order(centroids)
+        elif self.strategy == 'spatial_hybrid':
+            if self.training:
+                order = self._random_order(B, K, slots.device)
+            else:
+                if centroids is not None:
+                    order = self._spatial_order(centroids)
+                else:
+                    order = self._degree_order(adj)
         elif self.strategy == 'hybrid':
             if self.training:
                 order = self._random_order(B, K, slots.device)
             else:
                 order = self._degree_order(adj)
+        elif self.strategy == 'random':
+            order = self._random_order(B, K, slots.device)
         else:
-            raise ValueError(f"Unknown strategy: {self.strategy}")
+            order = self._degree_order(adj)
 
-        # Reorder slots
         batch_idx = torch.arange(B, device=slots.device).unsqueeze(1).expand(-1, K)
         ordered_slots = slots[batch_idx, order]
-
-        # Compute reverse order for unscrambling
         reverse_order = order.argsort(dim=-1)
 
         return ordered_slots, order, reverse_order
@@ -163,20 +291,18 @@ class GraphMambaLayer(nn.Module):
     Graph Mamba layer for relational reasoning between object slots.
 
     Pipeline:
-    1. Build kNN graph from slots
-    2. Order nodes using degree/hybrid strategy
-    3. Process with bidirectional Mamba (forward + backward scan)
-    4. Unscramble back to original slot order
-    5. Add residual connection + LayerNorm
+    1. Compute spatial positions from attention maps (centroids + spread)
+    2. Build kNN graph using semantic + spatial similarity
+    3. Add spatial positional encoding to slots
+    4. Order nodes using spatial/degree/hybrid strategy
+    5. Process with bidirectional Mamba (forward + backward scan)
+    6. Unscramble back to original slot order
+    7. Add residual connection + LayerNorm
 
-    Args:
-        slot_dim: Dimension of slot representations
-        d_state: Mamba SSM state dimension
-        d_conv: Mamba convolution width
-        expand: Mamba expansion factor
-        k_neighbors: Number of neighbors in kNN graph
-        strategy: Ordering strategy ('degree', 'random', 'hybrid')
-        num_layers: Number of stacked Graph Mamba layers
+    Reviewer-driven improvements over original:
+    - Explicit spatial features from attention map centroids
+    - Graph edges use spatial proximity, not just content similarity
+    - Spatial ordering alongside degree ordering
     """
     def __init__(
         self,
@@ -185,18 +311,23 @@ class GraphMambaLayer(nn.Module):
         d_conv: int = 4,
         expand: int = 2,
         k_neighbors: int = 5,
-        strategy: str = 'hybrid',
+        strategy: str = 'spatial_hybrid',
         num_layers: int = 2,
+        spatial_weight: float = 0.3,
     ):
         super().__init__()
         self.slot_dim = slot_dim
         self.num_layers = num_layers
 
-        # Graph construction
-        self.graph_builder = SlotGraphBuilder(slot_dim, k=k_neighbors)
+        # Spatial encoding from attention maps
+        self.spatial_encoder = SlotSpatialEncoder(slot_dim, pos_dim=64)
+
+        # Graph construction (semantic + spatial)
+        self.graph_builder = SlotGraphBuilder(slot_dim, k=k_neighbors,
+                                              spatial_weight=spatial_weight)
         self.orderer = GraphSequenceOrderer(strategy=strategy)
 
-        # Mamba layers (bidirectional: forward + backward)
+        # Mamba layers (bidirectional)
         MambaModule = Mamba if HAS_MAMBA else LinearSequenceModel
         self.forward_mambas = nn.ModuleList([
             MambaModule(d_model=slot_dim, d_state=d_state, d_conv=d_conv, expand=expand)
@@ -209,8 +340,7 @@ class GraphMambaLayer(nn.Module):
 
         # Merge forward + backward
         self.merge_layers = nn.ModuleList([
-            nn.Linear(slot_dim * 2, slot_dim)
-            for _ in range(num_layers)
+            nn.Linear(slot_dim * 2, slot_dim) for _ in range(num_layers)
         ])
 
         # Norms and residuals
@@ -229,34 +359,46 @@ class GraphMambaLayer(nn.Module):
             for _ in range(num_layers)
         ])
 
-    def forward(self, slots, keep_mask=None):
+    def forward(self, slots, keep_mask=None, attn_maps=None, spatial_hw=None):
         """
         Args:
             slots: [B, K, D] object slot representations
             keep_mask: [B, K] binary mask (1 = active slot)
+            attn_maps: [B, K_total, N] slot attention maps (for spatial encoding)
+            spatial_hw: tuple (H, W) spatial grid dimensions
 
         Returns:
             enhanced_slots: [B, K, D] slots with relational information
         """
         B, K, D = slots.shape
 
-        # Build graph
-        adj = self.graph_builder(slots, keep_mask)  # [B, K, K]
+        # Compute spatial position encoding from attention maps
+        centroids = None
+        if attn_maps is not None and spatial_hw is not None:
+            H, W = spatial_hw
+            # Use only object slot attention maps (first K of K_total)
+            obj_attn = attn_maps[:, :K, :]
+            pos_enc = self.spatial_encoder(obj_attn, H, W)  # [B, K, D]
+            slots = slots + pos_enc  # Add spatial position info
+            centroids = self.spatial_encoder.compute_centroids(obj_attn, H, W)[0]
+
+        # Build graph with spatial-aware edges
+        adj = self.graph_builder(slots, keep_mask, centroids=centroids)
 
         for i in range(self.num_layers):
             residual = slots
 
-            # Order nodes
-            ordered, order, reverse_order = self.orderer(slots, adj)
+            # Order nodes (spatial-aware)
+            ordered, order, reverse_order = self.orderer(slots, adj, centroids)
 
             # Bidirectional Mamba scan
-            fwd_out = self.forward_mambas[i](ordered)             # [B, K, D]
-            bwd_out = self.backward_mambas[i](ordered.flip(1))    # [B, K, D]
-            bwd_out = bwd_out.flip(1)                              # Reverse back
+            fwd_out = self.forward_mambas[i](ordered)
+            bwd_out = self.backward_mambas[i](ordered.flip(1))
+            bwd_out = bwd_out.flip(1)
 
             # Merge directions
-            merged = torch.cat([fwd_out, bwd_out], dim=-1)  # [B, K, 2D]
-            merged = self.merge_layers[i](merged)            # [B, K, D]
+            merged = torch.cat([fwd_out, bwd_out], dim=-1)
+            merged = self.merge_layers[i](merged)
 
             # Unscramble to original order
             batch_idx = torch.arange(B, device=slots.device).unsqueeze(1).expand(-1, K)

@@ -1,11 +1,11 @@
 # =============================================================================
-# PHASE 1: GeoSlot — Train on CVUSA (Showcase Benchmark)
-# Backbone: NVIDIA MambaVision-L (pretrained ImageNet-1K)
+# PHASE 1 (ViT): GeoSlot — Train on CVUSA (Showcase Benchmark)
+# Backbone: DINOv2 ViT-L/14 (pretrained)
 # Target: Recall@1 ≥ 99%  |  Hardware: Kaggle H100  |  Self-contained
 # =============================================================================
 
-# === SETUP (Auto-install dependencies) ===
-import subprocess, sys, re
+# === SETUP (No mamba_ssm needed — ViT + LinearAttention) ===
+import subprocess, sys
 
 def run(cmd, verbose=False):
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
@@ -17,110 +17,23 @@ def run(cmd, verbose=False):
 def pip(pkg, extra=""):
     return run(f"pip install -q {extra} {pkg}")
 
-# ----- Step 1: Detect CUDA version từ hardware -----
-print("[1/6] Detecting CUDA version...")
-r = subprocess.run("nvidia-smi", shell=True, capture_output=True, text=True)
-cuda_match = re.search(r"CUDA Version:\s*([\d.]+)", r.stdout)
-hw_cuda  = cuda_match.group(1) if cuda_match else "12.6"
-major    = int(hw_cuda.split(".")[0])
-minor    = int(hw_cuda.split(".")[1]) if "." in hw_cuda else 0
-print(f"  Hardware CUDA: {hw_cuda}")
-
-# PyTorch chỉ có wheel đến cu126 (tính đến 2025).
-# Nếu hardware CUDA >= 12.6 thì dùng cu126 — tương thích ngược.
-# Nếu hardware CUDA 12.x < 12.6 thì dùng đúng version.
-if major >= 13 or (major == 12 and minor >= 6):
-    cu_tag = "cu126"
-elif major == 12 and minor >= 4:
-    cu_tag = "cu124"
-elif major == 12 and minor >= 1:
-    cu_tag = "cu121"
-else:
-    cu_tag = "cu118"
-print(f"  → Using PyTorch index: {cu_tag}  (CUDA is backward-compatible)")
-
-# ----- Step 2: Sync PyTorch với CUDA -----
-# Root cause của lỗi "undefined symbol": PyTorch build cu124 chạy trên CUDA 12.6+
-# → selective_scan_cuda.so link sai symbol → import mamba_ssm crash
-print("[2/6] Syncing PyTorch to match hardware CUDA...")
-ok = run(
-    f"pip install -q -U torch torchvision torchaudio "
-    f"--index-url https://download.pytorch.org/whl/{cu_tag}"
-)
-if ok:
-    print(f"  ✓ PyTorch synced to {cu_tag}")
-else:
-    print(f"  [WARN] PyTorch sync failed — proceeding anyway")
-
-print("  ⚠  Kaggle/Colab: nếu đây là lần đầu chạy, hãy restart kernel rồi chạy lại!")
-
-# ----- Step 3: Base packages -----
-print("[3/6] Installing base packages...")
-pip("transformers==4.44.2")  # MUST pin — newer versions break MambaVision (all_tied_weights_keys)
+print("[1/2] Installing packages...")
 for p in ["timm", "tqdm"]:
     try:
         __import__(p)
     except ImportError:
         pip(p)
 
-# ----- Step 4: Build tools + fix nvcc PATH -----
-print("[4/6] Installing build tools & fixing nvcc PATH...")
-pip("packaging ninja wheel setuptools", "--upgrade")
-
-# Kaggle: nvcc thường ở /usr/local/cuda/bin nhưng không có trong PATH khi pip build
-import os
-cuda_bin_paths = [
-    "/usr/local/cuda/bin",
-    "/usr/local/cuda-12/bin",
-    "/usr/local/cuda-12.6/bin",
-    "/usr/local/cuda-13/bin",
-    "/usr/local/cuda-13.0/bin",
-]
-existing = [p for p in cuda_bin_paths if os.path.isdir(p)]
-if existing:
-    os.environ["PATH"] = existing[0] + ":" + os.environ.get("PATH", "")
-    os.environ["CUDA_HOME"] = os.path.dirname(existing[0])
-    print(f"  ✓ nvcc PATH set: {existing[0]}")
-    run(f"nvcc --version", verbose=True)
-else:
-    print("  [WARN] nvcc not found in common paths — build may fail")
-    run("find /usr -name 'nvcc' 2>/dev/null | head -5", verbose=True)
-
-# ----- Step 5: causal-conv1d + mamba_ssm từ source -----
-# Phải build từ source vì prebuilt wheel chỉ có đến cu124/cu126
-# CUDA >= 12.x đều tương thích — chỉ cần compiler nvcc có sẵn trên Kaggle
-print("[5/6] Building causal-conv1d from source...")
-ok = pip("causal-conv1d>=1.4.0", "--no-build-isolation")
-if not ok:
-    # Thử version mới nhất không specify
-    ok = pip("causal-conv1d", "--no-build-isolation --no-cache-dir")
-if not ok:
-    print("  [WARN] causal-conv1d build failed")
-
-print("[6/6] Building mamba_ssm from source (5-10 phút)...")
-ok = pip("mamba_ssm", "--no-build-isolation --no-cache-dir")
-if not ok:
-    # Thử cài thẳng từ GitHub (luôn là bản mới nhất)
-    print("  [INFO] pip failed — trying direct GitHub install...")
-    ok = run(
-        "pip install -q --no-build-isolation "
-        "git+https://github.com/state-spaces/mamba.git"
-    )
-if not ok:
-    print("  [WARN] mamba_ssm build failed — will use LinearAttention fallback")
-    print("  NOTE: MambaVision backbone cũng sẽ không load được!")
-    print("  → Cân nhắc chạy lại sau khi restart kernel (bước quan trọng nhất)")
-
-# ----- Verify -----
-print("\n[VERIFY] Checking mamba_ssm...")
+# Optionally try mamba_ssm for GraphMamba — but LinearAttention fallback works fine
+print("[2/2] Checking optional mamba_ssm...")
 try:
     from mamba_ssm import Mamba
-    print("  ✓ mamba_ssm loaded successfully!")
+    print("  ✓ mamba_ssm available (will use true SSM)")
     MAMBA_AVAILABLE = True
-except ImportError as e:
-    print(f"  ✗ mamba_ssm not available: {e}")
-    print("  → LinearAttention fallback active")
+except ImportError:
+    print("  ✗ mamba_ssm not available — using LinearAttention (fine for ViT version)")
     MAMBA_AVAILABLE = False
+
 
 # === IMPORTS ===
 import os, math, glob, json, time, gc
@@ -136,7 +49,8 @@ from torch.cuda.amp import GradScaler, autocast
 from torchvision import transforms
 from PIL import Image
 from tqdm import tqdm
-from transformers import AutoModel
+import timm
+
 
 # === CONFIG ===
 # ===================== ĐỔI PATH NÀY THEO KAGGLE CỦA BẠN =====================
@@ -144,14 +58,14 @@ CVUSA_ROOT = "/kaggle/input/datasets/chinguyeen/cvusa-subdataset/CVUSA"
 OUTPUT_DIR = "/kaggle/working"
 # ==============================================================================
 
-# ★ QUICK TEST MODE — set True để chạy nhanh với ít data, xem pipeline chạy đúng chưa
-QUICK_TEST     = False
-QT_TRAIN_RATIO = 0.20         # dùng 20% data (full CVUSA ~35k)
-QT_VAL_RATIO   = 0.20         # 20% val
+# ★ QUICK TEST MODE
+QUICK_TEST     = True
+QT_TRAIN_RATIO = 0.20
+QT_VAL_RATIO   = 0.20
 
 # --- Model ---
-BACKBONE_NAME  = "nvidia/MambaVision-L-1K"
-FEATURE_DIM    = 1568
+BACKBONE_NAME  = "vit_large_patch14_dinov2.lvd142m"  # DINOv2 ViT-L/14 via timm
+FEATURE_DIM    = 1024          # ViT-L output dim
 SLOT_DIM       = 256
 MAX_SLOTS      = 12
 N_REGISTER     = 4
@@ -163,8 +77,8 @@ SINKHORN_ITERS = 15
 MESH_ITERS     = 3
 
 # --- Data ---
-SAT_SIZE       = 224
-PANO_SIZE      = (128, 512)   # (H, W) for torchvision — panorama: short × wide
+SAT_SIZE       = 518
+PANO_SIZE      = (518, 518)   # ViT-L/14 requires 518x518 input
 
 # --- Training ---
 BATCH_SIZE     = 32
@@ -178,19 +92,19 @@ AMP_ENABLED    = True
 FREEZE_BACKBONE_EPOCHS = 5 if not QUICK_TEST else 3
 EVAL_FREQ      = 5 if not QUICK_TEST else 2
 SAVE_FREQ      = 10 if not QUICK_TEST else 5
-STAGE2_EPOCH   = 15 if not QUICK_TEST else 99   # QT: disable Stage 2/3, InfoNCE+DWBL only
+STAGE2_EPOCH   = 15 if not QUICK_TEST else 99   # QT: disable Stage 2/3
 STAGE3_EPOCH   = 30 if not QUICK_TEST else 99
 WARMUP_LOSS    = 5 if not QUICK_TEST else 3
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 print("=" * 70)
-print("  PHASE 1: GeoSlot — CVUSA Training")
-print("  Backbone: NVIDIA MambaVision-L (pretrained ImageNet-1K)")
+print("  PHASE 1 (ViT): GeoSlot — CVUSA Training")
+print("  Backbone: DINOv2 ViT-L/14 (pretrained)")
 print("=" * 70)
 print(f"  Device:        {DEVICE}")
 print(f"  Backbone:      {BACKBONE_NAME}")
-print(f"  mamba_ssm:     {'✓ available' if MAMBA_AVAILABLE else '✗ fallback mode'}")
+print(f"  mamba_ssm:     {'✓ SSM' if MAMBA_AVAILABLE else '✗ LinearAttention fallback'}")
 print(f"  Feature dim:   {FEATURE_DIM}")
 print(f"  Slots:         {MAX_SLOTS} object + {N_REGISTER} register")
 print(f"  Embedding:     {EMBED_DIM_OUT}")
@@ -207,42 +121,31 @@ print("=" * 70)
 
 
 # #############################################################################
-# PART 1: BACKBONE — MambaVision-L (Pretrained)
+# PART 1: BACKBONE — DINOv2 ViT-L/14 (Pretrained via timm)
 # #############################################################################
 
-print("\n[INIT] Loading MambaVision-L pretrained backbone...")
+print("\n[INIT] Loading DINOv2 ViT-L/14 pretrained backbone...")
 
-class MambaVisionBackbone(nn.Module):
+class ViTBackbone(nn.Module):
     """
-    NVIDIA MambaVision-L as feature extractor.
+    DINOv2 ViT-L/14 as feature extractor via timm.
     Input:  [B, 3, H, W]
-    Output: ([B, N, 1568], (H', W'))  — dense features + spatial dims
+    Output: ([B, N, 1024], (H', W'))  — dense patch features + spatial dims
+
+    ViT produces N = (H/14) * (W/14) patch tokens.
+    For 224×224: 16×16 = 256 tokens.
+    For 128×512 pano: 9×36 = 324 tokens (after interpolating pos embed).
     """
-    def __init__(self, model_name="nvidia/MambaVision-L-1K", frozen=False):
+    def __init__(self, model_name="vit_large_patch14_dinov2.lvd142m", frozen=False):
         super().__init__()
-        if not MAMBA_AVAILABLE:
-            raise ImportError(
-                "\n\n  MambaVision backbone bắt buộc cần mamba_ssm.\n"
-                "  Hãy restart kernel rồi chạy lại script!\n"
-                "  Hoặc chạy thủ công: !pip install mamba_ssm --no-build-isolation\n"
-            )
-        # Fix MambaVision bug: torch.linspace creates meta tensor causing .item() to crash
-        old_linspace = torch.linspace
-        def patched_linspace(*args, **kwargs):
-            kwargs["device"] = "cpu"
-            return old_linspace(*args, **kwargs)
-        torch.linspace = patched_linspace
-        try:
-            self.model = AutoModel.from_pretrained(
-                model_name,
-                trust_remote_code=True,
-                low_cpu_mem_usage=False,
-            )
-        finally:
-            torch.linspace = old_linspace
-        if hasattr(self.model, 'head'):
-            self.model.head = nn.Identity()
-        self.feature_dim = FEATURE_DIM
+        self.model = timm.create_model(
+            model_name,
+            pretrained=True,
+            num_classes=0,     # remove classification head
+            global_pool='',    # no pooling — keep spatial tokens
+        )
+        self.patch_size = 14
+        self.feature_dim = FEATURE_DIM  # 1024 for ViT-L
 
         if frozen:
             self.freeze()
@@ -258,12 +161,29 @@ class MambaVisionBackbone(nn.Module):
         print("  [BACKBONE] Unfrozen (fine-tuning)")
 
     def forward(self, x):
-        # Force float32: mamba_ssm selective-scan CUDA kernel is unstable in float16
+        # timm ViT with global_pool='' returns [B, N+1, D] (with CLS token)
+        # or [B, N, D] depending on model config
         with torch.cuda.amp.autocast(enabled=False):
-            _, features = self.model(x.float())
-        feat = features[-1]          # [B, 1568, H', W']
-        B, C, H, W = feat.shape
-        return feat.permute(0, 2, 3, 1).reshape(B, H * W, C), (H, W)
+            features = self.model.forward_features(x.float())
+
+        # Remove CLS token if present (first token)
+        if hasattr(self.model, 'num_prefix_tokens') and self.model.num_prefix_tokens > 0:
+            features = features[:, self.model.num_prefix_tokens:, :]
+
+        B, N, C = features.shape
+        # Compute spatial dims from input size
+        H = x.shape[2] // self.patch_size
+        W = x.shape[3] // self.patch_size
+        # Handle rounding (timm may pad/crop)
+        if H * W != N:
+            # Fallback: guess square-ish
+            H = int(math.sqrt(N * x.shape[2] / x.shape[3]))
+            W = N // max(H, 1)
+            if H * W != N:
+                H = int(math.sqrt(N))
+                W = N // max(H, 1)
+
+        return features, (H, W)
 
 
 # #############################################################################
@@ -473,11 +393,10 @@ class SlotSpatialEncoder(nn.Module):
     def forward(self, attn_maps, H, W):
         centroids, spreads = self.compute_centroids(attn_maps, H, W)
         feats = torch.cat([centroids, spreads], dim=-1)  # [B, K, 4]
-        # Sinusoidal encoding
         device = feats.device
         freqs = 1.0 / (10000.0 ** (torch.arange(0, self.pos_dim, 2, device=device).float() / self.pos_dim))
         angles = feats.unsqueeze(-1) * freqs.view(1, 1, 1, -1) * 3.14159
-        enc = torch.cat([angles.sin(), angles.cos()], dim=-1).flatten(-2, -1)  # [B,K,4*pos_dim]
+        enc = torch.cat([angles.sin(), angles.cos()], dim=-1).flatten(-2, -1)
         return self.pos_mlp(enc)
 
 
@@ -502,7 +421,6 @@ class GraphMambaLayer(nn.Module):
         slots_norm = F.normalize(slots, dim=-1)
         sim = torch.bmm(slots_norm, slots_norm.transpose(1, 2))
         if centroids is not None:
-            # Safe L2: avoid NaN gradient from torch.cdist at zero distance
             diff_c = centroids.unsqueeze(2) - centroids.unsqueeze(1)
             spatial_dist = (diff_c * diff_c).sum(-1).clamp(min=1e-6).sqrt()
             sim_spatial = torch.exp(-spatial_dist ** 2 / 0.1)
@@ -530,7 +448,6 @@ class GraphMambaLayer(nn.Module):
 
         for i in range(len(self.fwd)):
             residual = slots
-            # Spatial ordering if available, else degree ordering
             if centroids is not None and not self.training:
                 order = self._spatial_order(centroids)
             elif self.training:
@@ -566,20 +483,17 @@ class SinkhornOT(nn.Module):
         )
 
     def forward(self, slots_q, slots_r, mask_q=None, mask_r=None):
-        # Force float32 for iterative Sinkhorn — float16 loses precision
         slots_q = slots_q.float()
         slots_r = slots_r.float()
         if mask_q is not None: mask_q = mask_q.float()
         if mask_r is not None: mask_r = mask_r.float()
 
         pq = self.cost_proj(slots_q); pr = self.cost_proj(slots_r)
-        # Safe L2 distance: torch.cdist backward has NaN at zero distance (sqrt'(0) = inf)
-        diff = pq.unsqueeze(2) - pr.unsqueeze(1)  # [B, K, M, D]
+        diff = pq.unsqueeze(2) - pr.unsqueeze(1)
         C = (diff * diff).sum(-1).clamp(min=1e-6).sqrt()
         B, K, M = C.shape
 
         log_K = -C / self.epsilon
-        # Proper partial transport marginals (normalized per-mask)
         if mask_q is not None:
             log_mu = torch.log(mask_q.clamp(min=1e-8))
             log_mu = log_mu - torch.logsumexp(log_mu, dim=-1, keepdim=True)
@@ -611,14 +525,14 @@ class SinkhornOT(nn.Module):
 
 
 # #############################################################################
-# PART 3: FULL PIPELINE — GeoSlot
+# PART 3: FULL PIPELINE — GeoSlot (ViT version)
 # #############################################################################
 
 class GeoSlot(nn.Module):
     def __init__(self, backbone_name, feature_dim, slot_dim, max_slots,
                  n_register, embed_dim_out, frozen_backbone=False):
         super().__init__()
-        self.backbone = MambaVisionBackbone(backbone_name, frozen=frozen_backbone)
+        self.backbone = ViTBackbone(backbone_name, frozen=frozen_backbone)
         self.slot_attention = AdaptiveSlotAttention(
             feature_dim=feature_dim, slot_dim=slot_dim,
             max_slots=max_slots, n_register=n_register,
@@ -634,11 +548,8 @@ class GeoSlot(nn.Module):
         )
 
     def encode_view(self, x, global_step=None):
-        features, (feat_h, feat_w) = self.backbone(x)  # already float32
+        features, (feat_h, feat_w) = self.backbone(x)
 
-        # Force float32 for all post-backbone ops:
-        # SlotAttention (GRU, softmax), Gumbel (log-log noise),
-        # GraphMamba (SSM blocks) are all numerically unstable in float16.
         with torch.cuda.amp.autocast(enabled=False):
             features = features.float()
             sa_out    = self.slot_attention(features, global_step)
@@ -737,7 +648,7 @@ class ContrastiveSlotLoss(nn.Module):
     def forward(self, out):
         qs = F.normalize(out["query_slots"], dim=-1)
         rs = F.normalize(out["ref_slots"],   dim=-1)
-        T  = out["transport_plan"].detach()          # ← detach: break circular gradient
+        T  = out["transport_plan"].detach()
         Tn = T / (T.sum(dim=-1, keepdim=True) + 1e-8)
         sim  = torch.bmm(qs, rs.transpose(1, 2)) / self.t
         loss = -(Tn * F.log_softmax(sim, dim=-1)).sum(dim=-1)
@@ -755,12 +666,10 @@ class DiceLoss(nn.Module):
     def forward(self, attn_maps, keep_mask=None):
         B, K, N = attn_maps.shape
         an = attn_maps / (attn_maps.sum(dim=-1, keepdim=True) + 1e-8)
-        # Vectorized pairwise overlap (replaces O(K²) Python loop)
-        overlap = torch.bmm(an, an.transpose(1, 2))            # [B, K, K]
-        sums = an.sum(dim=-1)                                   # [B, K]
-        union = sums.unsqueeze(1) + sums.unsqueeze(2)           # [B, K, K]
-        dice = (2 * overlap + self.s) / (union + self.s)        # [B, K, K]
-        # Upper triangle only (i < j, exclude self-overlap)
+        overlap = torch.bmm(an, an.transpose(1, 2))
+        sums = an.sum(dim=-1)
+        union = sums.unsqueeze(1) + sums.unsqueeze(2)
+        dice = (2 * overlap + self.s) / (union + self.s)
         tri = torch.triu(torch.ones(K, K, device=an.device, dtype=torch.bool), diagonal=1)
         if keep_mask is not None:
             pair_mask = (keep_mask.unsqueeze(1) * keep_mask.unsqueeze(2)).float()
@@ -786,7 +695,6 @@ class JointLoss(nn.Module):
         self.dice    = DiceLoss()
 
     def _ramp(self, epoch, stage_start):
-        """Linear ramp 0→1 over warmup_epochs after stage transition."""
         return min(1.0, (epoch - stage_start + 1) / self.warmup)
 
     def forward(self, out, epoch=0):
@@ -803,7 +711,6 @@ class JointLoss(nn.Module):
             loss_di = self.dice(out["query_attn_maps"][:, :K_obj, :], km)
             total   = total + ramp * (self.lam_cs * loss_cs + self.lam_di * loss_di)
 
-        # BG mask entropy regularization (prevents mask collapse)
         loss_bg = torch.tensor(0.0, device=total.device)
         if out.get("query_bg_mask") is not None:
             p = out["query_bg_mask"].squeeze(-1).clamp(1e-6, 1 - 1e-6)
@@ -849,12 +756,14 @@ class CVUSADataset(Dataset):
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ])
         self.pano_tf = transforms.Compose([
-            transforms.Resize(pano_size),
+            transforms.Resize((pano_size[0], pano_size[1])),
+            transforms.CenterCrop((pano_size[0], pano_size[1])),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ])
         self.pano_tf_aug = transforms.Compose([
-            transforms.Resize(pano_size),
+            transforms.Resize((pano_size[0], pano_size[1])),
+            transforms.CenterCrop((pano_size[0], pano_size[1])),
             transforms.RandomHorizontalFlip(),
             transforms.ColorJitter(brightness=0.2, contrast=0.15, saturation=0.1),
             transforms.ToTensor(),
@@ -872,7 +781,7 @@ class CVUSADataset(Dataset):
         else:
             self._load_match(pano_dir, sat_dir, split)
 
-        # QUICK_TEST: limit dataset size for fast iteration
+        # QUICK_TEST: limit dataset size
         if QUICK_TEST:
             ratio = QT_TRAIN_RATIO if split == "train" else QT_VAL_RATIO
             limit = max(16, int(len(self.pairs) * ratio))
@@ -1145,7 +1054,7 @@ def main():
                     "epoch": epoch + 1, "r1": r1,
                     "model_state_dict":     model.state_dict(),
                     "optimizer_state_dict": optimizer.state_dict(),
-                }, os.path.join(OUTPUT_DIR, "best_model_cvusa.pth"))
+                }, os.path.join(OUTPUT_DIR, "best_model_cvusa_vit.pth"))
                 print(f"  ★ New best R@1: {r1:.2%}")
 
         log["history"].append(entry)
@@ -1157,20 +1066,20 @@ def main():
                 "epoch": epoch + 1,
                 "model_state_dict":     model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
-            }, os.path.join(OUTPUT_DIR, f"ckpt_epoch{epoch+1}.pth"))
+            }, os.path.join(OUTPUT_DIR, f"ckpt_vit_epoch{epoch+1}.pth"))
 
     # === Final results ===
     log["best_r1"] = best_r1
-    results_path   = os.path.join(OUTPUT_DIR, "results_cvusa.json")
+    results_path   = os.path.join(OUTPUT_DIR, "results_cvusa_vit.json")
     with open(results_path, "w") as f:
         json.dump(log, f, indent=2)
 
     print(f"\n{'='*70}")
-    print(f"  Training complete!")
+    print(f"  Training complete! (ViT version)")
     print(f"  Best R@1       = {best_r1:.2%}")
     print(f"  mamba_ssm used = {MAMBA_AVAILABLE}")
     print(f"  Results        : {results_path}")
-    print(f"  Best model     : {os.path.join(OUTPUT_DIR, 'best_model_cvusa.pth')}")
+    print(f"  Best model     : {os.path.join(OUTPUT_DIR, 'best_model_cvusa_vit.pth')}")
     print(f"{'='*70}")
 
 
