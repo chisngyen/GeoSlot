@@ -98,7 +98,7 @@ DATA_ROOT      = "/kaggle/input/datasets/chinguyeen/sues-dataset/SUES-200"
 OUTPUT_DIR     = "/kaggle/working"
 
 EPOCHS         = 50
-BATCH_SIZE     = 32           # smaller for MambaVision-L + 512px
+BATCH_SIZE     = 128           # smaller for MambaVision-L + 512px
 NUM_WORKERS    = 4
 AMP_ENABLED    = True
 EVAL_FREQ      = 5

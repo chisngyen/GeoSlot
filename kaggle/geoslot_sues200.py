@@ -53,7 +53,7 @@ OUTPUT_DIR     = "/kaggle/working"
 
 # --- Training ---
 EPOCHS         = 50
-BATCH_SIZE     = 32
+BATCH_SIZE     = 128
 NUM_WORKERS    = 4
 AMP_ENABLED    = True
 EVAL_FREQ      = 5
