@@ -22,6 +22,8 @@
 \citation{osrt}
 \citation{dinosaur}
 \citation{adaslot}
+\citation{qasa2023}
+\citation{isa2023}
 \citation{ocgnet}
 \@writefile{toc}{\contentsline {section}{\numberline {2}Related Work}{2}{section.2}\protected@file@percent }
 \newlabel{sec:related}{{2}{2}{Related Work}{section.2}{}}
@@ -32,7 +34,8 @@
 \citation{kusner2015}
 \citation{xu2019gromov}
 \citation{liu2023ot}
-\citation{mena2018}
+\citation{titouan2019fgw}
+\citation{chizat2018uot}
 \citation{mambavision}
 \@writefile{toc}{\contentsline {section}{\numberline {3}Method}{3}{section.3}\protected@file@percent }
 \newlabel{sec:method}{{3}{3}{Method}{section.3}{}}
@@ -41,32 +44,38 @@
 \newlabel{sec:backbone}{{3.2}{3}{MambaVision Backbone}{subsection.3.2}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Adaptive Slot Attention}{3}{subsection.3.3}\protected@file@percent }
 \newlabel{sec:slots}{{3.3}{3}{Adaptive Slot Attention}{subsection.3.3}{}}
-\citation{registers}
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces \textbf  {\textsc  {GeoSlot}{} Architecture.} Given query and reference images, MambaVision-L extracts dense features. Background Mask suppresses transient objects. Adaptive Slot Attention decomposes the scene into 12 object slots + 4 register slots, with Gumbel-based dynamic pruning. Graph Mamba performs bidirectional relational reasoning between slots. Finally, Sinkhorn OT with MESH produces hard 1-to-1 slot assignments and a global similarity score.}}{4}{figure.caption.2}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces \textbf  {\textsc  {GeoSlot 2.0}{} Architecture.} Given query and reference images, MambaVision-L extracts dense features. The \textbf  {Adaptive Gumbel-Sparsity Mask} suppresses transient objects with a per-image learned threshold~$\gamma $. Adaptive Slot Attention decomposes the scene into $K{=}8$ object slots + $R{=}4$ register slots (discarded before matching) with Gumbel-based dynamic pruning. \textbf  {Hilbert-Ordered Graph Mamba} performs rotation-robust bidirectional relational reasoning over object slots only. Finally, \textbf  {UFGW} jointly matches object slot features and graph topology, producing a global similarity score.}}{4}{figure.caption.2}\protected@file@percent }
 \providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
-\newlabel{fig:architecture}{{1}{4}{\textbf {\ours {} Architecture.} Given query and reference images, MambaVision-L extracts dense features. Background Mask suppresses transient objects. Adaptive Slot Attention decomposes the scene into 12 object slots + 4 register slots, with Gumbel-based dynamic pruning. Graph Mamba performs bidirectional relational reasoning between slots. Finally, Sinkhorn OT with MESH produces hard 1-to-1 slot assignments and a global similarity score}{figure.caption.2}{}}
+\newlabel{fig:architecture}{{1}{4}{\textbf {\oursv {} Architecture.} Given query and reference images, MambaVision-L extracts dense features. The \textbf {Adaptive Gumbel-Sparsity Mask} suppresses transient objects with a per-image learned threshold~$\gamma $. Adaptive Slot Attention decomposes the scene into $K{=}8$ object slots + $R{=}4$ register slots (discarded before matching) with Gumbel-based dynamic pruning. \textbf {Hilbert-Ordered Graph Mamba} performs rotation-robust bidirectional relational reasoning over object slots only. Finally, \textbf {UFGW} jointly matches object slot features and graph topology, producing a global similarity score}{figure.caption.2}{}}
+\citation{registers}
 \citation{adaslot}
+\citation{vim}
+\citation{isa2023}
 \@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Graph Mamba: Relational Reasoning}{5}{subsection.3.4}\protected@file@percent }
 \newlabel{sec:graphmamba}{{3.4}{5}{Graph Mamba: Relational Reasoning}{subsection.3.4}{}}
-\citation{cuturi2013}
-\citation{mena2018}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Sinkhorn OT with MESH}{6}{subsection.3.5}\protected@file@percent }
-\newlabel{sec:ot}{{3.5}{6}{Sinkhorn OT with MESH}{subsection.3.5}{}}
+\citation{titouan2019fgw}
+\citation{chizat2018uot}
+\citation{titouan2019fgw}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Unbalanced Fused Gromov-Wasserstein Matching}{6}{subsection.3.5}\protected@file@percent }
+\newlabel{sec:ot}{{3.5}{6}{Unbalanced Fused Gromov-Wasserstein Matching}{subsection.3.5}{}}
 \citation{wu2017sampling}
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces UFGW Matching (forward pass)}}{7}{algorithm.1}\protected@file@percent }
+\newlabel{alg:ufgw}{{1}{7}{UFGW Matching (forward pass)}{algorithm.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.6}Training Objective}{7}{subsection.3.6}\protected@file@percent }
+\newlabel{sec:loss}{{3.6}{7}{Training Objective}{subsection.3.6}{}}
 \citation{cvusa}
 \citation{uni1652}
 \citation{vigor}
 \citation{cvcities}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.6}Training Objective}{7}{subsection.3.6}\protected@file@percent }
-\newlabel{sec:loss}{{3.6}{7}{Training Objective}{subsection.3.6}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {4}Experiments}{7}{section.4}\protected@file@percent }
-\newlabel{sec:experiments}{{4}{7}{Experiments}{section.4}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Datasets}{7}{subsection.4.1}\protected@file@percent }
 \citation{cvcities}
 \citation{geodtr}
 \citation{saig}
 \citation{sample4geo}
 \citation{cvcities}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Experiments}{8}{section.4}\protected@file@percent }
+\newlabel{sec:experiments}{{4}{8}{Experiments}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Datasets}{8}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Implementation Details}{8}{subsection.4.2}\protected@file@percent }
 \citation{fsra}
 \citation{atrpf}
 \citation{sample4geo}
@@ -80,37 +89,32 @@
 \citation{auxgeo}
 \citation{auxgeo}
 \citation{geodtr}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Implementation Details}{8}{subsection.4.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Main Results}{8}{subsection.4.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces \textbf  {Results on CVUSA.} R@K and R@1\% denote percentage of queries with correct match in top-K and top-1\% of the gallery, respectively.}}{8}{table.caption.3}\protected@file@percent }
-\newlabel{tab:cvusa}{{1}{8}{\textbf {Results on CVUSA.} R@K and R@1\% denote percentage of queries with correct match in top-K and top-1\% of the gallery, respectively}{table.caption.3}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces \textbf  {Drone$\to $Satellite retrieval on University-1652.}}}{8}{table.caption.4}\protected@file@percent }
-\newlabel{tab:uni1652}{{2}{8}{\textbf {Drone$\to $Satellite retrieval on University-1652.}}{table.caption.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Main Results}{9}{subsection.4.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces \textbf  {Results on CVUSA.} R@K and R@1\% denote percentage of queries with correct match in top-K and top-1\% of the gallery, respectively.}}{9}{table.caption.3}\protected@file@percent }
+\newlabel{tab:cvusa}{{1}{9}{\textbf {Results on CVUSA.} R@K and R@1\% denote percentage of queries with correct match in top-K and top-1\% of the gallery, respectively}{table.caption.3}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces \textbf  {Drone$\to $Satellite retrieval on University-1652.}}}{9}{table.caption.4}\protected@file@percent }
+\newlabel{tab:uni1652}{{2}{9}{\textbf {Drone$\to $Satellite retrieval on University-1652.}}{table.caption.4}{}}
 \@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces \textbf  {Results on VIGOR.} Same-Area and Cross-Area evaluation. Hit@1 $\neq  $ R@1.}}{9}{table.caption.5}\protected@file@percent }
 \newlabel{tab:vigor}{{3}{9}{\textbf {Results on VIGOR.} Same-Area and Cross-Area evaluation. Hit@1 $\neq $ R@1}{table.caption.5}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {5}Ablation Study}{9}{section.5}\protected@file@percent }
 \newlabel{sec:ablation}{{5}{9}{Ablation Study}{section.5}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Component Analysis}{9}{subsection.5.1}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces \textbf  {Ablation study on University-1652.} Incremental module contributions (30 epochs).}}{9}{table.caption.6}\protected@file@percent }
-\newlabel{tab:ablation}{{4}{9}{\textbf {Ablation study on University-1652.} Incremental module contributions (30 epochs)}{table.caption.6}{}}
-\citation{transgeo}
-\citation{sample4geo}
-\citation{geodtr}
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces \textbf  {Ablation study on CVUSA (20\%).} Progressive module addition (10 epochs). Results pending.}}{10}{table.caption.6}\protected@file@percent }
+\newlabel{tab:ablation}{{4}{10}{\textbf {Ablation study on CVUSA (20\%).} Progressive module addition (10 epochs). Results pending}{table.caption.6}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Slot Visualization}{10}{subsection.5.2}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces \textbf  {Slot attention visualization.} Each row shows a query-reference pair. Colors indicate different slots. Slots consistently bind to the same semantic regions across viewpoints.}}{10}{figure.caption.7}\protected@file@percent }
 \newlabel{fig:slots}{{2}{10}{\textbf {Slot attention visualization.} Each row shows a query-reference pair. Colors indicate different slots. Slots consistently bind to the same semantic regions across viewpoints}{figure.caption.7}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Slot Quality Analysis}{10}{subsection.5.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Cross-Area Generalization}{10}{subsection.5.4}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces \textbf  {Cross-area generalization on VIGOR.} Training on 3 cities, testing on unseen city.}}{10}{table.caption.8}\protected@file@percent }
-\newlabel{tab:crossarea}{{5}{10}{\textbf {Cross-area generalization on VIGOR.} Training on 3 cities, testing on unseen city}{table.caption.8}{}}
+\citation{transgeo}
+\citation{sample4geo}
+\citation{geodtr}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Cross-Area Generalization}{11}{subsection.5.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces \textbf  {Cross-area generalization on VIGOR.} Training on 3 cities, testing on unseen city.}}{11}{table.caption.8}\protected@file@percent }
+\newlabel{tab:crossarea}{{5}{11}{\textbf {Cross-area generalization on VIGOR.} Training on 3 cities, testing on unseen city}{table.caption.8}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {6}Analysis and Discussion}{11}{section.6}\protected@file@percent }
 \newlabel{sec:analysis}{{6}{11}{Analysis and Discussion}{section.6}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces \textbf  {Computational cost analysis} on NVIDIA H100. Throughput measured with batch size 32 at $224{\times }224$ input resolution.}}{11}{table.caption.9}\protected@file@percent }
-\newlabel{tab:compute}{{6}{11}{\textbf {Computational cost analysis} on NVIDIA H100. Throughput measured with batch size 32 at $224{\times }224$ input resolution}{table.caption.9}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {7}Broader Impact}{11}{section.7}\protected@file@percent }
-\newlabel{sec:impact}{{7}{11}{Broader Impact}{section.7}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {8}Conclusion}{11}{section.8}\protected@file@percent }
-\newlabel{sec:conclusion}{{8}{11}{Conclusion}{section.8}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces \textbf  {Computational cost analysis} on NVIDIA H100. Throughput measured with batch size 32.}}{11}{table.caption.9}\protected@file@percent }
+\newlabel{tab:compute}{{6}{11}{\textbf {Computational cost analysis} on NVIDIA H100. Throughput measured with batch size 32}{table.caption.9}{}}
 \bibstyle{unsrtnat}
 \bibcite{slotattention}{{1}{2020}{{Locatello et al.}}{{}}}
 \bibcite{mamba}{{2}{2023}{{Gu and Dao}}{{}}}
@@ -124,6 +128,10 @@
 \bibcite{uni1652}{{10}{2020}{{Zheng et al.}}{{}}}
 \bibcite{vigor}{{11}{2021}{{Zhu et al.}}{{}}}
 \bibcite{workman2015}{{12}{2015}{{Workman et al.}}{{}}}
+\@writefile{toc}{\contentsline {section}{\numberline {7}Broader Impact}{12}{section.7}\protected@file@percent }
+\newlabel{sec:impact}{{7}{12}{Broader Impact}{section.7}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8}Conclusion}{12}{section.8}\protected@file@percent }
+\newlabel{sec:conclusion}{{8}{12}{Conclusion}{section.8}{}}
 \bibcite{cvmnet}{{13}{2018}{{Hu et al.}}{{}}}
 \bibcite{shi2019spatial}{{14}{2019}{{Shi et al.}}{{}}}
 \bibcite{fsra}{{15}{2022}{{Dai et al.}}{{}}}
@@ -148,6 +156,10 @@
 \bibcite{kusner2015}{{34}{2015}{{Kusner et al.}}{{}}}
 \bibcite{xu2019gromov}{{35}{2019}{{Xu et al.}}{{}}}
 \bibcite{liu2023ot}{{36}{2023}{{Liu et al.}}{{}}}
-\bibcite{saig}{{37}{2023}{{SAIG}}{{}}}
-\bibcite{cvusa}{{38}{2017}{{Zhai et al.}}{{}}}
+\bibcite{titouan2019fgw}{{37}{2019}{{Titouan et al.}}{{}}}
+\bibcite{chizat2018uot}{{38}{2018}{{Chizat et al.}}{{}}}
+\bibcite{isa2023}{{39}{2023}{{ISA}}{{}}}
+\bibcite{qasa2023}{{40}{2023}{{QASA}}{{}}}
+\bibcite{saig}{{41}{2023}{{SAIG}}{{}}}
+\bibcite{cvusa}{{42}{2017}{{Zhai et al.}}{{}}}
 \gdef \@abspage@last{13}

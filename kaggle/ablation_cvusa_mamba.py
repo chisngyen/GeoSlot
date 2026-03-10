@@ -1,21 +1,19 @@
 # =============================================================================
-# QUICK ABLATION TEST: GeoSlot 2.0 — Module-by-Module Evaluation on CVUSA (20%)
+# ABLATION v2: GeoSlot 2.0 — Proper 3-Stage Training on CVUSA (40%)
 # =============================================================================
-# Purpose: Test EACH module individually to see if it contributes positive R@1
+# Fixes from v1:
+#   1. 3-stage training (freeze backbone → add slot losses → full fine-tuning)
+#   2. 40 epochs (vs 10) — enough for slot specialization
+#   3. 40% dataset (vs 20%) — more negative pairs
+#   4. Cosine LR with linear warm-up
+#   5. CSM + Dice losses activated in Stage 2 (epoch 15+)
+#   6. Backbone frozen first 10 epochs
 #
-# 6 Configs:
-#   A1: Backbone + GAP  → Cosine  (Baseline: no GeoSlot modules)
-#   A2: + Slot Attention            (Object-Centric decomposition)
-#   A3: + Adaptive BG Mask          (γ learned per-image, replaces α=0.7)
-#   A4: + Graph Mamba (Hilbert)     (Relational reasoning + Hilbert curve)
-#   A5: + FGW OT (balanced)        (Graph-to-Graph matching)
-#   A6: + UFGW (unbalanced)        (Full pipeline with occlusion handling)
-#
-# Each config: 10 epochs, 20% CVUSA data → ~5-8 min per config on H100
-# Total: ~30-50 min
+# 6 Configs: A1 (Baseline) → A6 (Full UFGW)
+# Total: ~3-4 hours on T4/P100, ~1.5 hours on H100
 # =============================================================================
 
-# === SETUP (Auto-install) ===
+# === SETUP ===
 import subprocess, sys, re
 
 def run(cmd, verbose=False):
@@ -99,34 +97,52 @@ from transformers import AutoModel
 
 
 # =============================================================================
-# CONFIG
+# CONFIG — v2 with proper training schedule
 # =============================================================================
 CVUSA_ROOT     = "/kaggle/input/datasets/chinguyeen/cvusa-subdataset/CVUSA"
 OUTPUT_DIR     = "/kaggle/working"
 
-# --- Quick Ablation Settings ---
-DATA_RATIO     = 0.20         # 20% of CVUSA
-EPOCHS         = 10           # Quick: 10 epochs per config
+# --- Training Schedule ---
+DATA_RATIO     = 0.40            # 40% of CVUSA
+EPOCHS         = 40              # 40 epochs total
 BATCH_SIZE     = 32
 NUM_WORKERS    = 4
-LR_BACKBONE    = 1e-5
-LR_HEAD        = 1e-4
-WEIGHT_DECAY   = 0.01
 AMP_ENABLED    = True
-EVAL_FREQ      = 5            # Evaluate every 5 epochs
+EVAL_FREQ      = 5               # Evaluate every 5 epochs
+
+# --- 3-Stage Schedule ---
+STAGE1_END     = 10              # Stage 1: epochs [0, 10) — backbone frozen, InfoNCE only
+STAGE2_END     = 25              # Stage 2: epochs [10, 25) — unfreeze backbone, add CSM+Dice
+# Stage 3: epochs [25, 40) — full fine-tuning, lower LR
+
+# --- Learning Rates ---
+LR_BACKBONE_S1 = 0.0             # Frozen
+LR_HEAD_S1     = 3e-4            # Higher LR for heads in Stage 1
+LR_BACKBONE_S2 = 3e-5            # Unfreeze with low LR
+LR_HEAD_S2     = 1e-4
+LR_BACKBONE_S3 = 1e-5            # Fine-tuning
+LR_HEAD_S3     = 5e-5
+WEIGHT_DECAY   = 0.01
+WARMUP_EPOCHS  = 3               # Linear warmup first 3 epochs
+
+# --- Loss Weights ---
+LAMBDA_CSM     = 0.3             # Contrastive slot matching (Stage 2+)
+LAMBDA_DICE    = 0.1             # Slot overlap penalty (Stage 2+)
+LAMBDA_BG      = 0.01            # Background mask regularization
+CSM_WARMUP     = 5               # Ramp CSM/Dice over 5 epochs
 
 # --- Model ---
 BACKBONE_NAME  = "nvidia/MambaVision-L-1K"
 FEATURE_DIM    = 1568
 SLOT_DIM       = 256
-MAX_SLOTS      = 8            # Smaller for speed
+MAX_SLOTS      = 8
 N_REGISTER     = 4
 EMBED_DIM_OUT  = 512
 N_HEADS        = 4
 SA_ITERS       = 3
 GM_LAYERS      = 2
 SINKHORN_ITERS = 10
-FGW_ITERS      = 5            # Fewer for speed
+FGW_ITERS      = 5
 
 SAT_SIZE       = 224
 PANO_SIZE      = (128, 512)
@@ -138,7 +154,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # BACKBONE
 # =============================================================================
 class MambaVisionBackbone(nn.Module):
-    def __init__(self, model_name="nvidia/MambaVision-L-1K", frozen=False):
+    def __init__(self, model_name="nvidia/MambaVision-L-1K"):
         super().__init__()
         old_linspace = torch.linspace
         def patched_linspace(*args, **kwargs):
@@ -153,8 +169,6 @@ class MambaVisionBackbone(nn.Module):
         if hasattr(self.model, 'head'):
             self.model.head = nn.Identity()
         self.feature_dim = FEATURE_DIM
-        if frozen:
-            for p in self.model.parameters(): p.requires_grad = False
 
     def forward(self, x):
         with torch.cuda.amp.autocast(enabled=False):
@@ -165,7 +179,7 @@ class MambaVisionBackbone(nn.Module):
 
 
 # =============================================================================
-# SSM BLOCK (Mamba or LinearAttention fallback)
+# SSM BLOCK
 # =============================================================================
 if MAMBA_AVAILABLE:
     class SSMBlock(nn.Module):
@@ -191,14 +205,9 @@ else:
 
 
 # =============================================================================
-# MODULE: Adaptive Gumbel-Sparsity Mask
+# MODULES (same as v1 — Mask, Slots, GraphMamba, OT)
 # =============================================================================
 class AdaptiveGumbelSparsityMask(nn.Module):
-    """
-    Adaptive background suppression with learned gamma.
-    gamma = sigmoid(MLP(GAP(F))) adapts per-image.
-    Desert: gamma -> 1.0 (keep all). Urban: gamma -> 0.4 (suppress 60%).
-    """
     def __init__(self, d, hidden=64):
         super().__init__()
         self.mask_head = nn.Sequential(
@@ -211,14 +220,13 @@ class AdaptiveGumbelSparsityMask(nn.Module):
         )
 
     def forward(self, features):
-        mask = self.mask_head(features)           # [B, N, 1]
-        gap = features.mean(dim=1)                # [B, D]
-        gamma = self.gamma_head(gap)              # [B, 1]
+        mask = self.mask_head(features)
+        gap = features.mean(dim=1)
+        gamma = self.gamma_head(gap)
         return features * mask, mask, gamma
 
 
 class StaticBackgroundMask(nn.Module):
-    """Original static mask (alpha=0.7) for comparison."""
     def __init__(self, d, hidden=64):
         super().__init__()
         self.net = nn.Sequential(
@@ -228,12 +236,9 @@ class StaticBackgroundMask(nn.Module):
 
     def forward(self, features):
         mask = self.net(features)
-        return features * mask, mask, None  # gamma=None -> static
+        return features * mask, mask, None
 
 
-# =============================================================================
-# MODULE: Slot Attention
-# =============================================================================
 class SlotAttentionCore(nn.Module):
     def __init__(self, dim, feature_dim, n_heads=4, iters=3, eps=1e-8):
         super().__init__()
@@ -291,9 +296,6 @@ class GumbelSelector(nn.Module):
         return decision, keep_probs
 
 
-# =============================================================================
-# MODULE: Spatial Encoder + Graph Mamba
-# =============================================================================
 class SlotSpatialEncoder(nn.Module):
     def __init__(self, dim, pos_dim=64):
         super().__init__()
@@ -314,7 +316,7 @@ class SlotSpatialEncoder(nn.Module):
 
     def forward(self, attn_maps, H, W):
         centroids = self.compute_centroids(attn_maps, H, W)
-        spreads = torch.ones_like(centroids) * 0.1  # Simplified
+        spreads = torch.ones_like(centroids) * 0.1
         feats = torch.cat([centroids, spreads], dim=-1)
         device = feats.device
         freqs = 1.0 / (10000.0 ** (torch.arange(0, self.pos_dim, 2, device=device).float() / self.pos_dim))
@@ -324,7 +326,6 @@ class SlotSpatialEncoder(nn.Module):
 
 
 def xy2d_hilbert(n, x, y):
-    """Hilbert curve 2D -> 1D mapping."""
     d = 0; s = n // 2
     while s > 0:
         rx = 1 if (x & s) > 0 else 0
@@ -338,7 +339,6 @@ def xy2d_hilbert(n, x, y):
 
 
 def hilbert_order(centroids):
-    """Sort slot centroids by Hilbert curve index."""
     B, K, _ = centroids.shape
     device = centroids.device
     grid_size = 16
@@ -361,7 +361,6 @@ class GraphMambaLayer(nn.Module):
         self.norms = nn.ModuleList([nn.LayerNorm(dim) for _ in range(num_layers)])
         self.ffns = nn.ModuleList([nn.Sequential(nn.LayerNorm(dim), nn.Linear(dim, dim*4),
                                    nn.GELU(), nn.Linear(dim*4, dim)) for _ in range(num_layers)])
-        self.spatial_weight = spatial_weight
         self.use_hilbert = use_hilbert
 
     def forward(self, slots, keep_mask=None, attn_maps=None, spatial_hw=None):
@@ -377,13 +376,8 @@ class GraphMambaLayer(nn.Module):
             residual = slots
             if centroids is not None and self.use_hilbert:
                 order = hilbert_order(centroids)
-            elif self.training:
-                order = torch.stack([torch.randperm(K, device=slots.device) for _ in range(B)])
             else:
-                # Degree ordering
-                slots_norm = F.normalize(slots, dim=-1)
-                sim = torch.bmm(slots_norm, slots_norm.transpose(1,2))
-                order = sim.sum(dim=-1).argsort(dim=-1, descending=True)
+                order = torch.stack([torch.randperm(K, device=slots.device) for _ in range(B)])
 
             bi = torch.arange(B, device=slots.device).unsqueeze(1).expand(-1, K)
             ordered = slots[bi, order]
@@ -398,49 +392,7 @@ class GraphMambaLayer(nn.Module):
         return slots, centroids
 
 
-# =============================================================================
-# MODULE: OT Matching (Sinkhorn + FGW)
-# =============================================================================
-class SinkhornOT(nn.Module):
-    def __init__(self, dim, num_iters=10, epsilon=0.05, mesh_iters=3):
-        super().__init__()
-        self.num_iters = num_iters; self.epsilon = epsilon; self.mesh_iters = mesh_iters
-        self.cost_proj = nn.Sequential(nn.Linear(dim, dim), nn.ReLU(True), nn.Linear(dim, dim))
-
-    def forward(self, slots_q, slots_r, mask_q=None, mask_r=None, **kwargs):
-        slots_q = slots_q.float(); slots_r = slots_r.float()
-        if mask_q is not None: mask_q = mask_q.float()
-        if mask_r is not None: mask_r = mask_r.float()
-        pq = self.cost_proj(slots_q); pr = self.cost_proj(slots_r)
-        diff = pq.unsqueeze(2) - pr.unsqueeze(1)
-        C = (diff*diff).sum(-1).clamp(min=1e-6).sqrt()
-        B, K, M = C.shape
-        log_K = -C / self.epsilon
-        if mask_q is not None:
-            log_mu = torch.log(mask_q.clamp(min=1e-8))
-            log_mu = log_mu - torch.logsumexp(log_mu, dim=-1, keepdim=True)
-            log_K = log_K + log_mu.unsqueeze(-1)
-        if mask_r is not None:
-            log_nu = torch.log(mask_r.clamp(min=1e-8))
-            log_nu = log_nu - torch.logsumexp(log_nu, dim=-1, keepdim=True)
-            log_K = log_K + log_nu.unsqueeze(-2)
-        log_a = torch.zeros(B, K, 1, device=C.device)
-        log_b = torch.zeros(B, 1, M, device=C.device)
-        for _ in range(self.num_iters):
-            log_a = -torch.logsumexp(log_K + log_b, dim=2, keepdim=True)
-            log_b = -torch.logsumexp(log_K + log_a, dim=1, keepdim=True)
-        T = torch.exp(log_K + log_a + log_b)
-        for _ in range(self.mesh_iters):
-            T = T ** 2
-            T = T / (T.sum(dim=-1, keepdim=True) + 1e-8)
-            T = T / (T.sum(dim=-2, keepdim=True) + 1e-8)
-        cost = (T * C).sum(dim=(-1, -2))
-        return {"similarity": torch.sigmoid(-cost), "transport_plan": T,
-                "cost_matrix": C, "transport_cost": cost}
-
-
 class FusedGromovWasserstein(nn.Module):
-    """FGW: matches node features AND graph structure."""
     def __init__(self, dim, lambda_fgw=0.5, tau_kl=0.1,
                  n_outer=5, n_sinkhorn=10, epsilon=0.05):
         super().__init__()
@@ -450,7 +402,7 @@ class FusedGromovWasserstein(nn.Module):
         self.cost_proj = nn.Sequential(nn.Linear(dim, dim), nn.ReLU(True), nn.Linear(dim, dim))
 
     @property
-    def epsilon(self): return self.log_eps.exp()
+    def epsilon(self): return self.log_eps.exp().clamp(0.01, 0.5)
 
     def forward(self, slots_q, slots_r, mask_q=None, mask_r=None,
                 centroids_q=None, centroids_r=None):
@@ -460,7 +412,6 @@ class FusedGromovWasserstein(nn.Module):
         C = (diff*diff).sum(-1).clamp(min=1e-6).sqrt()
         B, K, M = C.shape
 
-        # Structure costs
         if centroids_q is not None and centroids_r is not None:
             centroids_q = centroids_q.float(); centroids_r = centroids_r.float()
             dq = centroids_q.unsqueeze(2) - centroids_q.unsqueeze(1)
@@ -471,7 +422,6 @@ class FusedGromovWasserstein(nn.Module):
             Sq = torch.zeros(B, K, K, device=C.device)
             Sr = torch.zeros(B, M, M, device=C.device)
 
-        # Marginals
         if mask_q is not None:
             mu = mask_q.float() / (mask_q.float().sum(-1, keepdim=True) + 1e-8)
         else:
@@ -481,14 +431,11 @@ class FusedGromovWasserstein(nn.Module):
         else:
             nu = torch.ones(B, M, device=C.device) / M
 
-        # Init transport
         T = mu.unsqueeze(2) * nu.unsqueeze(1)
-
         eps = self.epsilon
         rho = self.tau_kl / (self.tau_kl + eps)
 
         for _ in range(self.n_outer):
-            # GW cost: |Sq_ik - Sr_jl|^2 T_kl
             Sq2 = Sq * Sq; Sr2 = Sr * Sr
             t1 = torch.bmm(Sq2, T.sum(dim=2, keepdim=True)).squeeze(-1).unsqueeze(2).expand_as(T)
             t2 = torch.bmm(T.sum(dim=1, keepdim=True), Sr2).squeeze(1).unsqueeze(1).expand_as(T)
@@ -496,7 +443,6 @@ class FusedGromovWasserstein(nn.Module):
             L_gw = t1 + t2 + t3
             C_fgw = (1 - self.lambda_fgw) * C + self.lambda_fgw * L_gw
 
-            # Unbalanced Sinkhorn
             log_K = -C_fgw / eps
             log_mu = torch.log(mu.clamp(min=1e-8))
             log_nu = torch.log(nu.clamp(min=1e-8))
@@ -515,10 +461,9 @@ class FusedGromovWasserstein(nn.Module):
 
 
 # =============================================================================
-# 6 PIPELINE CONFIGURATIONS
+# PIPELINE CONFIGS (A1-A6)
 # =============================================================================
 class ConfigA1_BaselineGAP(nn.Module):
-    """A1: Backbone + GAP -> Cosine. No GeoSlot modules."""
     def __init__(self, backbone):
         super().__init__()
         self.backbone = backbone
@@ -531,15 +476,16 @@ class ConfigA1_BaselineGAP(nn.Module):
             emb = F.normalize(self.head(features.mean(dim=1)), dim=-1)
         return {"embedding": emb, "slots": None, "keep_mask": None,
                 "bg_mask": None, "adaptive_gamma": None,
-                "attn_maps": None, "keep_probs": None, "register_slots": None,
-                "centroids": None}
+                "attn_maps": None, "keep_probs": None,
+                "register_slots": None, "centroids": None}
 
     def forward(self, q_img, r_img, global_step=None):
         q = self.encode_view(q_img, global_step)
         r = self.encode_view(r_img, global_step)
         sim = (q["embedding"] * r["embedding"]).sum(dim=-1)
         return {"query_embedding": q["embedding"], "ref_embedding": r["embedding"],
-                "similarity": sim, "transport_plan": None, "transport_cost": torch.zeros(q_img.shape[0], device=q_img.device),
+                "similarity": sim, "transport_plan": None,
+                "transport_cost": torch.zeros(q_img.shape[0], device=q_img.device),
                 "query_slots": None, "ref_slots": None,
                 "query_keep_mask": None, "ref_keep_mask": None,
                 "query_bg_mask": None, "ref_bg_mask": None,
@@ -552,7 +498,6 @@ class ConfigA1_BaselineGAP(nn.Module):
 
 
 class ConfigA2toA6(nn.Module):
-    """A2-A6: Progressively adding modules."""
     def __init__(self, backbone, use_slots=True, use_adaptive_mask=False,
                  use_graph=False, use_hilbert=False,
                  matching='cosine', lambda_fgw=0.5, tau_kl=0.1):
@@ -562,7 +507,6 @@ class ConfigA2toA6(nn.Module):
         self.use_graph = use_graph
         self.matching_type = matching
 
-        # Background mask
         if use_adaptive_mask:
             self.bg_mask = AdaptiveGumbelSparsityMask(FEATURE_DIM)
         else:
@@ -579,12 +523,10 @@ class ConfigA2toA6(nn.Module):
             if use_graph:
                 self.graph_mamba = GraphMambaLayer(SLOT_DIM, GM_LAYERS, use_hilbert=use_hilbert)
 
-            if matching == 'sinkhorn':
-                self.ot_matcher = SinkhornOT(SLOT_DIM, SINKHORN_ITERS)
-            elif matching == 'fgw':
-                self.ot_matcher = FusedGromovWasserstein(SLOT_DIM, lambda_fgw, tau_kl=1e6, n_outer=FGW_ITERS)
-            elif matching == 'ufgw':
-                self.ot_matcher = FusedGromovWasserstein(SLOT_DIM, lambda_fgw, tau_kl, n_outer=FGW_ITERS)
+            if matching in ('fgw', 'ufgw'):
+                self.ot_matcher = FusedGromovWasserstein(
+                    SLOT_DIM, lambda_fgw, tau_kl if matching == 'ufgw' else 1e6,
+                    n_outer=FGW_ITERS)
 
             embed_input = SLOT_DIM
         else:
@@ -635,7 +577,7 @@ class ConfigA2toA6(nn.Module):
         r = self.encode_view(r_img, global_step)
 
         ot_out = None
-        if self.use_slots and self.matching_type in ('sinkhorn', 'fgw', 'ufgw'):
+        if self.use_slots and self.matching_type in ('fgw', 'ufgw'):
             ot_out = self.ot_matcher(
                 q["slots"], r["slots"],
                 mask_q=q["keep_mask"], mask_r=r["keep_mask"],
@@ -665,12 +607,18 @@ class ConfigA2toA6(nn.Module):
 
 
 # =============================================================================
-# LOSSES (Simplified for ablation — InfoNCE + DWBL only)
+# 3-STAGE LOSS with CSM + Dice
 # =============================================================================
-class AblationLoss(nn.Module):
+class ThreeStageAblationLoss(nn.Module):
+    """
+    Stage 1 (epoch < STAGE1_END): InfoNCE only, backbone frozen
+    Stage 2 (epoch < STAGE2_END): + CSM + Dice + BG reg (ramped up)
+    Stage 3 (epoch >= STAGE2_END): All losses, lower LR
+    """
     def __init__(self):
         super().__init__()
         self.log_temp = nn.Parameter(torch.tensor(0.07).log())
+        self.csm_temp = 0.1
 
     @property
     def temp(self): return self.log_temp.exp().clamp(0.01, 1.0)
@@ -679,13 +627,71 @@ class AblationLoss(nn.Module):
         q_emb = out["query_embedding"]
         r_emb = out["ref_embedding"]
         B = q_emb.shape[0]
+
+        # --- InfoNCE (always active) ---
         logits = q_emb @ r_emb.t() / self.temp
         labels = torch.arange(B, device=logits.device)
-        loss = (F.cross_entropy(logits, labels) + F.cross_entropy(logits.t(), labels)) / 2
+        loss_infonce = (F.cross_entropy(logits, labels) + F.cross_entropy(logits.t(), labels)) / 2
         acc = (logits.argmax(dim=-1) == labels).float().mean()
 
-        # BG mask regularization
-        loss_bg = torch.tensor(0.0, device=loss.device)
+        total_loss = loss_infonce
+        loss_csm = torch.tensor(0.0, device=total_loss.device)
+        loss_dice = torch.tensor(0.0, device=total_loss.device)
+        loss_bg = torch.tensor(0.0, device=total_loss.device)
+
+        # --- Stage 2+: CSM + Dice (only if slots exist) ---
+        if epoch >= STAGE1_END and out.get("query_slots") is not None:
+            # Ramp factor: linear warmup over CSM_WARMUP epochs
+            ramp = min(1.0, (epoch - STAGE1_END + 1) / CSM_WARMUP)
+
+            # CSM: Contrastive Slot Matching
+            q_slots = out["query_slots"]  # [B, K, D]
+            r_slots = out["ref_slots"]    # [B, K, D]
+            q_mask = out.get("query_keep_mask")
+            tp = out.get("transport_plan")
+
+            if q_slots is not None and r_slots is not None:
+                q_norm = F.normalize(q_slots, dim=-1)
+                r_norm = F.normalize(r_slots, dim=-1)
+                slot_sim = torch.bmm(q_norm, r_norm.transpose(1, 2)) / self.csm_temp  # [B,K,K]
+
+                if tp is not None:
+                    # Use transport plan as soft targets (detached)
+                    tp_target = tp.detach()
+                    tp_target = tp_target / (tp_target.sum(dim=-1, keepdim=True) + 1e-8)
+                    csm_per_slot = -(tp_target * F.log_softmax(slot_sim, dim=-1)).sum(dim=-1)
+                else:
+                    # Diagonal matching (identity permutation)
+                    csm_per_slot = F.cross_entropy(
+                        slot_sim.view(-1, slot_sim.shape[-1]),
+                        torch.arange(slot_sim.shape[1], device=slot_sim.device).repeat(B),
+                        reduction='none').view(B, -1)
+
+                if q_mask is not None:
+                    loss_csm = (csm_per_slot * q_mask).sum() / (q_mask.sum() + 1e-8)
+                else:
+                    loss_csm = csm_per_slot.mean()
+
+                total_loss = total_loss + ramp * LAMBDA_CSM * loss_csm
+
+            # Dice: slot overlap penalty
+            q_attn = out.get("query_attn_maps")
+            if q_attn is not None:
+                K_obj = min(MAX_SLOTS, q_attn.shape[1])
+                obj_attn = q_attn[:, :K_obj]  # [B, K, N]
+                obj_attn = obj_attn / (obj_attn.sum(dim=-1, keepdim=True) + 1e-8)
+                dice_sum = 0.0; dice_count = 0
+                for i in range(K_obj):
+                    for j in range(i+1, K_obj):
+                        overlap = 2 * (obj_attn[:, i] * obj_attn[:, j]).sum(dim=-1)
+                        total_mass = obj_attn[:, i].sum(dim=-1) + obj_attn[:, j].sum(dim=-1)
+                        dice_sum += (overlap / (total_mass + 0.1)).mean()
+                        dice_count += 1
+                if dice_count > 0:
+                    loss_dice = dice_sum / dice_count
+                    total_loss = total_loss + ramp * LAMBDA_DICE * loss_dice
+
+        # --- BG mask regularization (all stages) ---
         if out.get("query_bg_mask") is not None:
             mask = out["query_bg_mask"]
             p = mask.squeeze(-1).clamp(1e-6, 1-1e-6)
@@ -693,19 +699,25 @@ class AblationLoss(nn.Module):
             gamma = out.get("query_adaptive_gamma")
             if gamma is not None:
                 coverage = F.relu(gamma - mask.mean(dim=1)).mean()
+                gamma_prior = ((gamma - 0.7) ** 2).mean()  # Prevent gamma collapse
+                loss_bg = -entropy + coverage + gamma_prior
             else:
                 coverage = (mask.mean() - 0.7) ** 2
-            loss_bg = -entropy + coverage
-            loss = loss + 0.01 * loss_bg
+                loss_bg = -entropy + coverage
+            total_loss = total_loss + LAMBDA_BG * loss_bg
 
-        return {"total_loss": loss, "accuracy": acc, "loss_bg": loss_bg}
+        return {"total_loss": total_loss, "accuracy": acc,
+                "loss_infonce": loss_infonce.item(),
+                "loss_csm": loss_csm.item() if isinstance(loss_csm, torch.Tensor) else loss_csm,
+                "loss_dice": loss_dice.item() if isinstance(loss_dice, torch.Tensor) else loss_dice,
+                "loss_bg": loss_bg.item() if isinstance(loss_bg, torch.Tensor) else loss_bg}
 
 
 # =============================================================================
-# DATASET
+# DATASET (same as v1)
 # =============================================================================
 class CVUSADataset(Dataset):
-    def __init__(self, root, split="train", sat_size=224, pano_size=(128, 512), ratio=0.2):
+    def __init__(self, root, split="train", sat_size=224, pano_size=(128, 512), ratio=0.4):
         super().__init__()
         self.split = split; self.pairs = []
         self.sat_tf = transforms.Compose([
@@ -740,7 +752,6 @@ class CVUSADataset(Dataset):
                         if os.path.exists(c): sp = c; break
                     if pp and sp: self.pairs.append((pp, sp))
         else:
-            # Fallback: match by filename
             if os.path.exists(pano_dir) and os.path.exists(sat_dir):
                 panos = sorted(glob.glob(os.path.join(pano_dir, "**", "*.jpg"), recursive=True))
                 sat_dict = {os.path.splitext(os.path.basename(s))[0]: s
@@ -750,8 +761,7 @@ class CVUSADataset(Dataset):
                 idx = int(len(all_pairs) * 0.8)
                 self.pairs = all_pairs[:idx] if split == "train" else all_pairs[idx:]
 
-        # Limit to ratio
-        limit = max(32, int(len(self.pairs) * ratio))
+        limit = max(64, int(len(self.pairs) * ratio))
         if len(self.pairs) > limit:
             random.seed(42)
             self.pairs = random.sample(self.pairs, limit)
@@ -798,25 +808,58 @@ def evaluate(model, val_loader, device):
 
 
 # =============================================================================
-# TRAIN ONE CONFIG
+# COSINE LR SCHEDULER
 # =============================================================================
-def train_config(config_name, model, train_loader, val_loader, device, epochs=10):
+def get_cosine_lr(epoch, total_epochs, base_lr, warmup_epochs=3):
+    """Cosine annealing with linear warmup."""
+    if epoch < warmup_epochs:
+        return base_lr * (epoch + 1) / warmup_epochs
+    progress = (epoch - warmup_epochs) / max(1, total_epochs - warmup_epochs)
+    return base_lr * 0.5 * (1 + math.cos(math.pi * progress))
+
+
+def get_stage_lrs(epoch):
+    """Get backbone and head learning rates for current epoch based on 3-stage schedule."""
+    if epoch < STAGE1_END:
+        # Stage 1: backbone frozen, heads warm up
+        lr_bb = 0.0
+        lr_hd = get_cosine_lr(epoch, STAGE1_END, LR_HEAD_S1, WARMUP_EPOCHS)
+    elif epoch < STAGE2_END:
+        # Stage 2: backbone unfrozen with low LR
+        stage_epoch = epoch - STAGE1_END
+        stage_len = STAGE2_END - STAGE1_END
+        lr_bb = get_cosine_lr(stage_epoch, stage_len, LR_BACKBONE_S2, 2)
+        lr_hd = get_cosine_lr(stage_epoch, stage_len, LR_HEAD_S2, 0)
+    else:
+        # Stage 3: fine-tuning with lower LR
+        stage_epoch = epoch - STAGE2_END
+        stage_len = EPOCHS - STAGE2_END
+        lr_bb = get_cosine_lr(stage_epoch, stage_len, LR_BACKBONE_S3, 0)
+        lr_hd = get_cosine_lr(stage_epoch, stage_len, LR_HEAD_S3, 0)
+    return lr_bb, lr_hd
+
+
+# =============================================================================
+# TRAIN ONE CONFIG — 3-Stage
+# =============================================================================
+def train_config(config_name, model, train_loader, val_loader, device, epochs=40):
     print(f"\n{'='*70}")
     print(f"  CONFIG: {config_name}")
     print(f"  Params: {sum(p.numel() for p in model.parameters()):,}")
     print(f"  Trainable: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
+    print(f"  Schedule: Stage1[0-{STAGE1_END}) Stage2[{STAGE1_END}-{STAGE2_END}) Stage3[{STAGE2_END}-{epochs})")
     print(f"{'='*70}")
 
     model = model.to(device)
-    criterion = AblationLoss().to(device)
+    criterion = ThreeStageAblationLoss().to(device)
 
     bb_params = list(model.backbone.parameters())
     head_params = [p for n, p in model.named_parameters() if not n.startswith("backbone")]
     head_params += list(criterion.parameters())
 
     optimizer = torch.optim.AdamW([
-        {"params": bb_params, "lr": LR_BACKBONE},
-        {"params": head_params, "lr": LR_HEAD},
+        {"params": bb_params, "lr": 0.0, "name": "backbone"},
+        {"params": head_params, "lr": LR_HEAD_S1, "name": "head"},
     ], weight_decay=WEIGHT_DECAY)
 
     scaler = GradScaler(enabled=AMP_ENABLED and device.type == "cuda")
@@ -825,17 +868,23 @@ def train_config(config_name, model, train_loader, val_loader, device, epochs=10
     history = []
 
     for epoch in range(epochs):
-        # Freeze backbone first 2 epochs
-        if epoch == 0:
+        # --- Update LR and backbone freeze/unfreeze ---
+        lr_bb, lr_hd = get_stage_lrs(epoch)
+        optimizer.param_groups[0]["lr"] = lr_bb
+        optimizer.param_groups[1]["lr"] = lr_hd
+
+        if epoch < STAGE1_END:
             for p in bb_params: p.requires_grad = False
-        elif epoch == 2:
+            stage_label = "S1:frozen"
+        else:
             for p in bb_params: p.requires_grad = True
+            stage_label = "S2:+CSM" if epoch < STAGE2_END else "S3:full"
 
         model.train()
-        ep_loss = ep_acc = n = 0
+        ep_loss = ep_acc = ep_csm = ep_dice = n = 0
         t0 = time.time()
 
-        pbar = tqdm(train_loader, desc=f"  [{config_name}] Ep {epoch+1}/{epochs}", leave=False)
+        pbar = tqdm(train_loader, desc=f"  [{config_name}] Ep {epoch+1}/{epochs} ({stage_label})", leave=False)
         for batch in pbar:
             query = batch["query"].to(device)
             gallery = batch["gallery"].to(device)
@@ -860,14 +909,22 @@ def train_config(config_name, model, train_loader, val_loader, device, epochs=10
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
 
-            ep_loss += loss.item(); ep_acc += loss_dict["accuracy"].item(); n += 1
+            ep_loss += loss.item()
+            ep_acc += loss_dict["accuracy"].item()
+            ep_csm += loss_dict.get("loss_csm", 0)
+            ep_dice += loss_dict.get("loss_dice", 0)
+            n += 1
             global_step += 1
             pbar.set_postfix(loss=f"{loss.item():.4f}", acc=f"{loss_dict['accuracy'].item():.1%}")
 
         elapsed = time.time() - t0
         ep_loss /= max(n, 1); ep_acc /= max(n, 1)
+        ep_csm /= max(n, 1); ep_dice /= max(n, 1)
 
-        entry = {"epoch": epoch+1, "loss": round(ep_loss, 4), "acc": round(ep_acc, 4),
+        entry = {"epoch": epoch+1, "stage": stage_label,
+                 "loss": round(ep_loss, 4), "acc": round(ep_acc, 4),
+                 "csm": round(ep_csm, 4), "dice": round(ep_dice, 4),
+                 "lr_bb": round(lr_bb, 6), "lr_hd": round(lr_hd, 6),
                  "time": round(elapsed, 1)}
 
         if (epoch+1) % EVAL_FREQ == 0 or epoch == epochs - 1:
@@ -875,14 +932,18 @@ def train_config(config_name, model, train_loader, val_loader, device, epochs=10
             entry.update(metrics)
             r1 = metrics["R@1"]
             if r1 > best_r1: best_r1 = r1
-            print(f"  [{config_name}] Ep {epoch+1} | Loss={ep_loss:.4f} | Acc={ep_acc:.1%} | "
-                  f"R@1={r1:.2%} | R@5={metrics['R@5']:.2%} | {elapsed:.0f}s")
+            print(f"  [{config_name}] Ep {epoch+1} ({stage_label}) | "
+                  f"Loss={ep_loss:.4f} | Acc={ep_acc:.1%} | "
+                  f"R@1={r1:.2%} | R@5={metrics['R@5']:.2%} | "
+                  f"CSM={ep_csm:.4f} | LR={lr_bb:.1e}/{lr_hd:.1e} | {elapsed:.0f}s")
         else:
-            print(f"  [{config_name}] Ep {epoch+1} | Loss={ep_loss:.4f} | Acc={ep_acc:.1%} | {elapsed:.0f}s")
+            print(f"  [{config_name}] Ep {epoch+1} ({stage_label}) | "
+                  f"Loss={ep_loss:.4f} | Acc={ep_acc:.1%} | "
+                  f"CSM={ep_csm:.4f} | LR={lr_bb:.1e}/{lr_hd:.1e} | {elapsed:.0f}s")
 
         history.append(entry)
 
-    # Cleanup GPU
+    # Cleanup
     del model, criterion, optimizer, scaler
     gc.collect()
     if device.type == "cuda":
@@ -892,16 +953,16 @@ def train_config(config_name, model, train_loader, val_loader, device, epochs=10
 
 
 # =============================================================================
-# MAIN: RUN ALL 6 CONFIGS
+# MAIN
 # =============================================================================
 def main():
     print("\n" + "="*70)
-    print("  QUICK ABLATION TEST: GeoSlot 2.0 on CVUSA (20%)")
-    print("  6 configs x 10 epochs each")
+    print("  ABLATION v2: GeoSlot 2.0 on CVUSA (40%)")
+    print(f"  3-Stage Training: S1[0-{STAGE1_END}) S2[{STAGE1_END}-{STAGE2_END}) S3[{STAGE2_END}-{EPOCHS})")
+    print(f"  6 configs x {EPOCHS} epochs each")
     print(f"  Device: {DEVICE}")
     print("="*70)
 
-    # === Dataset ===
     print("\n[DATASET] Loading CVUSA...")
     train_ds = CVUSADataset(CVUSA_ROOT, "train", SAT_SIZE, PANO_SIZE, DATA_RATIO)
     val_ds = CVUSADataset(CVUSA_ROOT, "test", SAT_SIZE, PANO_SIZE, DATA_RATIO)
@@ -916,11 +977,9 @@ def main():
     val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE*2, shuffle=False,
                             num_workers=NUM_WORKERS, pin_memory=True)
 
-    # === Shared Backbone ===
     print("\n[BACKBONE] Loading MambaVision-L...")
     backbone = MambaVisionBackbone(BACKBONE_NAME)
 
-    # === Define 6 Configs ===
     configs = [
         ("A1: Backbone+GAP (Baseline)",
          lambda bb: ConfigA1_BaselineGAP(bb)),
@@ -947,9 +1006,7 @@ def main():
     all_history = {}
 
     for name, model_fn in configs:
-        # Re-create backbone (shared pretrained weights, fresh head each time)
         bb = MambaVisionBackbone(BACKBONE_NAME)
-        # Copy pretrained weights
         bb.load_state_dict(backbone.state_dict())
         model = model_fn(bb)
 
@@ -959,41 +1016,46 @@ def main():
 
     # === FINAL RESULTS TABLE ===
     print("\n" + "="*70)
-    print("  ABLATION RESULTS SUMMARY")
+    print("  ABLATION v2 RESULTS SUMMARY")
+    print("  Training: 3-Stage | 40 epochs | 40% CVUSA")
     print("="*70)
     print(f"  {'Config':<35} {'Best R@1':>10}")
     print(f"  {'-'*35} {'-'*10}")
+    baseline_r1 = None
     prev_r1 = 0.0
     for name, r1 in results.items():
+        if baseline_r1 is None: baseline_r1 = r1
         delta = r1 - prev_r1 if prev_r1 > 0 else 0
         arrow = f" (+{delta:.2%})" if delta > 0 else (f" ({delta:.2%})" if delta < 0 else "")
         print(f"  {name:<35} {r1:>8.2%}{arrow}")
         prev_r1 = r1
     print("="*70)
 
-    # Verdict
     r1_values = list(results.values())
     if len(r1_values) >= 2:
         total_gain = r1_values[-1] - r1_values[0]
-        print(f"\n  Total gain (A6 vs A1): +{total_gain:.2%}")
+        print(f"\n  Total gain (A6 vs A1): {'+' if total_gain >= 0 else ''}{total_gain:.2%}")
         if total_gain > 0.05:
-            print("  VERDICT: PASS -- All modules contribute positively!")
+            print("  VERDICT: PASS — Modules contribute positively!")
         elif total_gain > 0.02:
-            print("  VERDICT: PARTIAL PASS -- Some gain, needs tuning")
+            print("  VERDICT: PARTIAL PASS — Some gain, needs more epochs/tuning")
+        elif total_gain > -0.02:
+            print("  VERDICT: NEUTRAL — Need full training to see benefit")
         else:
-            print("  VERDICT: FAIL -- Modules not contributing enough")
+            print("  VERDICT: FAIL — Method needs redesign")
 
-    # Save results
     results_data = {
+        "version": "v2_3stage",
         "configs": {k: v for k, v in results.items()},
         "history": {k: v for k, v in all_history.items()},
         "settings": {
             "data_ratio": DATA_RATIO, "epochs": EPOCHS,
             "batch_size": BATCH_SIZE, "max_slots": MAX_SLOTS,
+            "stage1_end": STAGE1_END, "stage2_end": STAGE2_END,
             "mamba_ssm": MAMBA_AVAILABLE,
         }
     }
-    results_path = os.path.join(OUTPUT_DIR, "ablation_results.json")
+    results_path = os.path.join(OUTPUT_DIR, "ablation_v2_results.json")
     with open(results_path, "w") as f:
         json.dump(results_data, f, indent=2, default=str)
     print(f"\n  Results saved: {results_path}")

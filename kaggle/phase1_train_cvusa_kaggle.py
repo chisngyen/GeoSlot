@@ -163,8 +163,8 @@ SINKHORN_ITERS = 15
 MESH_ITERS     = 3
 
 # --- Data ---
-SAT_SIZE       = 224
-PANO_SIZE      = (128, 512)   # (H, W) for torchvision — panorama: short × wide
+SAT_SIZE       = 256
+PANO_SIZE      = (256, 256)   # original: both views 256×256 square
 
 # --- Training ---
 BATCH_SIZE     = 32
@@ -830,33 +830,39 @@ class JointLoss(nn.Module):
 # #############################################################################
 
 class CVUSADataset(Dataset):
-    def __init__(self, root, split="train", sat_size=224, pano_size=(512, 128)):
+    def __init__(self, root, split="train", img_size=256, pad=10):
         super().__init__()
         self.split = split
         self.pairs = []
 
+        # Eval / test transform (no augmentation)
         self.sat_tf = transforms.Compose([
-            transforms.Resize((sat_size, sat_size)),
+            transforms.Resize((img_size, img_size), interpolation=3),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ])
+        # Satellite train augmentation (original: RandomAffine(90) for rotation)
         self.sat_tf_aug = transforms.Compose([
-            transforms.Resize((int(sat_size * 1.1), int(sat_size * 1.1))),
-            transforms.RandomCrop((sat_size, sat_size)),
+            transforms.Resize((img_size, img_size), interpolation=3),
+            transforms.Pad(pad, padding_mode='edge'),
+            transforms.RandomAffine(90),
+            transforms.RandomCrop((img_size, img_size)),
             transforms.RandomHorizontalFlip(),
-            transforms.ColorJitter(brightness=0.2, contrast=0.15, saturation=0.1),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ])
+        # Ground / street eval
         self.pano_tf = transforms.Compose([
-            transforms.Resize(pano_size),
+            transforms.Resize((img_size, img_size), interpolation=3),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ])
+        # Ground / street train augmentation (original: Pad + RandomCrop)
         self.pano_tf_aug = transforms.Compose([
-            transforms.Resize(pano_size),
+            transforms.Resize((img_size, img_size), interpolation=3),
+            transforms.Pad(pad, padding_mode='edge'),
+            transforms.RandomCrop((img_size, img_size)),
             transforms.RandomHorizontalFlip(),
-            transforms.ColorJitter(brightness=0.2, contrast=0.15, saturation=0.1),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ])
@@ -937,8 +943,8 @@ class CVUSADataset(Dataset):
             pano = Image.open(pp).convert("RGB")
             sat  = Image.open(sp).convert("RGB")
         except Exception:
-            pano = Image.new("RGB", (512, 128), (128, 128, 128))
-            sat  = Image.new("RGB", (224, 224), (128, 128, 128))
+            pano = Image.new("RGB", (256, 256), (128, 128, 128))
+            sat  = Image.new("RGB", (256, 256), (128, 128, 128))
 
         if self.split == "train":
             pano = self.pano_tf_aug(pano)
@@ -987,8 +993,8 @@ def evaluate(model, val_loader, device):
 def main():
     # === Dataset ===
     print("\n[1/5] Loading CVUSA dataset...")
-    train_ds = CVUSADataset(CVUSA_ROOT, "train", SAT_SIZE, PANO_SIZE)
-    val_ds   = CVUSADataset(CVUSA_ROOT, "test",  SAT_SIZE, PANO_SIZE)
+    train_ds = CVUSADataset(CVUSA_ROOT, "train", SAT_SIZE)
+    val_ds   = CVUSADataset(CVUSA_ROOT, "test",  SAT_SIZE)
 
     if len(train_ds) == 0:
         print("[ERROR] No training samples! Check CVUSA_ROOT path.")

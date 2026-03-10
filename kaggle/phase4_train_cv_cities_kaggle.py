@@ -411,7 +411,7 @@ TEST_CITIES  = ["captown","maynila"]  # Unseen cities (Africa + Asia)
 QUICK_TEST = True
 QT_RATIO   = 0.20
 
-SAT_SIZE = 224;  PANO_SIZE = (512, 128)
+IMG_SIZE   = 256
 BATCH_SIZE = 32
 EPOCHS = 40 if not QUICK_TEST else 20
 EVAL_FREQ = 5 if not QUICK_TEST else 2
@@ -434,39 +434,69 @@ print("=" * 70)
 
 # === DATASET ===
 class CVCitiesDataset(Dataset):
-    """CV-Cities: pano ↔ satellite matching across cities."""
-    def __init__(self, root, cities, sat_size=224, pano_size=(512,128), split="train"):
+    """CV-Cities: pano ↔ satellite matching — reads img_info.csv (original format)."""
+    def __init__(self, root, cities, img_size=256, pad=10, split="train"):
         super().__init__()
         self.split = split; self.pairs = []
-        self.sat_tf = transforms.Compose([transforms.Resize((sat_size,sat_size)),transforms.ToTensor(),
-             transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])])
-        self.sat_aug = transforms.Compose([transforms.Resize((int(sat_size*1.1),int(sat_size*1.1))),
-             transforms.RandomCrop((sat_size,sat_size)),transforms.RandomHorizontalFlip(),
-             transforms.ColorJitter(0.2,0.15,0.1),transforms.ToTensor(),
-             transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])])
-        self.pano_tf = transforms.Compose([transforms.Resize(pano_size),transforms.ToTensor(),
-             transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])])
-        self.pano_aug = transforms.Compose([transforms.Resize(pano_size),transforms.RandomHorizontalFlip(),
-             transforms.ColorJitter(0.2,0.15,0.1),transforms.ToTensor(),
-             transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])])
 
+        # Eval transforms
+        self.sat_tf = transforms.Compose([
+            transforms.Resize((img_size, img_size), interpolation=3),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])])
+        self.pano_tf = transforms.Compose([
+            transforms.Resize((img_size, img_size), interpolation=3),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])])
+
+        # Satellite train augmentation (RandomAffine(90) for rotation)
+        self.sat_aug = transforms.Compose([
+            transforms.Resize((img_size, img_size), interpolation=3),
+            transforms.Pad(pad, padding_mode='edge'),
+            transforms.RandomAffine(90),
+            transforms.RandomCrop((img_size, img_size)),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])])
+
+        # Ground / pano train augmentation (Pad + RandomCrop)
+        self.pano_aug = transforms.Compose([
+            transforms.Resize((img_size, img_size), interpolation=3),
+            transforms.Pad(pad, padding_mode='edge'),
+            transforms.RandomCrop((img_size, img_size)),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])])
+
+        import csv
         for city in cities:
             city_dir = os.path.join(root, city, city)
             if not os.path.isdir(city_dir):
                 city_dir = os.path.join(root, city)
             if not os.path.isdir(city_dir):
                 print(f"  [WARN] {city} not found"); continue
-            pano_dir = os.path.join(city_dir, "pano_images")
-            sat_dir = os.path.join(city_dir, "sat_images")
-            if not os.path.exists(pano_dir) or not os.path.exists(sat_dir):
-                print(f"  [WARN] {city}: pano/sat dirs missing"); continue
-            panos = sorted(glob.glob(os.path.join(pano_dir, "*.jpg")))
-            for p in panos:
-                name = os.path.splitext(os.path.basename(p))[0]
-                s = os.path.join(sat_dir, name + ".jpg")
-                if not os.path.exists(s): s = os.path.join(sat_dir, name + ".png")
-                if os.path.exists(s):
-                    self.pairs.append((p, s, city))
+            info_file = os.path.join(city_dir, 'img_info.csv')
+            if not os.path.exists(info_file):
+                print(f"  [WARN] {city}: img_info.csv not found"); continue
+
+            # Original CSV: NO header, 6 columns:
+            # name, longitude, latitude, city, sat_dir, pano_dir
+            with open(info_file, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    if len(row) < 6:
+                        continue
+                    sat_rel = row[4].strip()
+                    pano_rel = row[5].strip()
+                    sat_path = os.path.join(root, sat_rel)
+                    pano_path = os.path.join(root, pano_rel)
+                    # Fallback: try relative to city_dir
+                    if not os.path.exists(sat_path):
+                        sat_path = os.path.join(city_dir, sat_rel)
+                    if not os.path.exists(pano_path):
+                        pano_path = os.path.join(city_dir, pano_rel)
+                    self.pairs.append((pano_path, sat_path, city))
+
         print(f"  [CV-Cities {split}] {len(self.pairs)} pairs from {len(cities)} cities")
 
         # QUICK_TEST: limit data
@@ -481,7 +511,7 @@ class CVCitiesDataset(Dataset):
     def __getitem__(self, idx):
         pp, sp, city = self.pairs[idx]
         try: pano=Image.open(pp).convert("RGB"); sat=Image.open(sp).convert("RGB")
-        except: pano=Image.new("RGB",(512,128),(128,128,128)); sat=Image.new("RGB",(224,224),(128,128,128))
+        except: pano=Image.new("RGB",(256,256),(128,128,128)); sat=Image.new("RGB",(256,256),(128,128,128))
         if self.split == "train":
             pano=self.pano_aug(pano); sat=self.sat_aug(sat)
         else:
@@ -491,11 +521,11 @@ class CVCitiesDataset(Dataset):
 
 # === EVALUATION ===
 @torch.no_grad()
-def evaluate_cities(model, root, cities, sat_size, pano_size, device):
+def evaluate_cities(model, root, cities, img_size, device):
     model.eval()
     all_results = {}
     for city in cities:
-        ds = CVCitiesDataset(root, [city], sat_size, pano_size, "test")
+        ds = CVCitiesDataset(root, [city], img_size, split="test")
         if len(ds) == 0: all_results[city] = {"R@1":0}; continue
         loader = DataLoader(ds, batch_size=64, shuffle=False, num_workers=2)
         q_e, r_e = [], []
@@ -518,7 +548,7 @@ def evaluate_cities(model, root, cities, sat_size, pano_size, device):
 # === TRAINING ===
 def main():
     print("\n[1] Loading CV-Cities...")
-    train_ds = CVCitiesDataset(CVCITIES_ROOT, TRAIN_CITIES, SAT_SIZE, PANO_SIZE, "train")
+    train_ds = CVCitiesDataset(CVCITIES_ROOT, TRAIN_CITIES, IMG_SIZE, split="train")
     if len(train_ds) == 0: print("[ERROR] No data!"); return
     train_loader = DataLoader(train_ds, BATCH_SIZE, shuffle=True, num_workers=4,
                               pin_memory=True, drop_last=True)
@@ -561,7 +591,7 @@ def main():
 
         if (epoch+1)%EVAL_FREQ==0 or epoch==EPOCHS-1:
             print(f"\n  Eval @ epoch {epoch+1} (cross-city)...")
-            m = evaluate_cities(model, CVCITIES_ROOT, TEST_CITIES, SAT_SIZE, PANO_SIZE, DEVICE)
+            m = evaluate_cities(model, CVCITIES_ROOT, TEST_CITIES, IMG_SIZE, DEVICE)
             entry["cross_city"] = m
             avg_r1 = m["average"]["R@1"]
             print(f"  Cross-city avg R@1 = {avg_r1:.2%}")

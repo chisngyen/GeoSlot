@@ -105,7 +105,8 @@ class ViTBackbone(nn.Module):
     """
     def __init__(self, model_name="vit_base_patch14_dinov2.lvd142m", frozen=False):
         super().__init__()
-        self.model = timm.create_model(model_name, pretrained=True, num_classes=0)
+        self.model = timm.create_model(
+            model_name, pretrained=True, num_classes=0, dynamic_img_size=True)
         self.feature_dim = FEATURE_DIM
 
         # Extract patch_size from model
@@ -823,7 +824,7 @@ def main():
     print("\n[BACKBONE] Loading DINOv2 ViT-B/14...")
     backbone = ViTBackbone(BACKBONE_NAME)
     print(f"  Feature dim: {FEATURE_DIM}")
-    print(f"  Patch grid: {backbone.grid_h}x{backbone.grid_w}")
+    print(f"  Patch size: {backbone.ps} (sat: {SAT_SIZE//backbone.ps}x{SAT_SIZE//backbone.ps}, pano: {PANO_SIZE[0]//backbone.ps}x{PANO_SIZE[1]//backbone.ps})")
 
     configs = [
         ("A1: ViT+GAP (Baseline)",

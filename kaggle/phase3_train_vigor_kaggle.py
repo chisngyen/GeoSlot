@@ -414,7 +414,7 @@ RESUME_FROM  = None  # e.g. "/kaggle/working/best_model_uni1652.pth"
 QUICK_TEST = True
 QT_RATIO   = 0.20
 
-SAT_SIZE  = 224;  PANO_SIZE = (512, 128)
+SAT_SIZE  = 320;  PANO_SIZE = (640, 320)
 BATCH_SIZE = 32
 EPOCHS = 80 if not QUICK_TEST else 20
 EVAL_FREQ = 5 if not QUICK_TEST else 2
@@ -437,16 +437,38 @@ print("=" * 70)
 
 
 # === DATASET ===
+def _resolve_img_dir(root, subdir_name):
+    """Resolve image directory, handling nested tar extraction."""
+    nested = os.path.join(root, subdir_name, subdir_name)
+    if os.path.exists(nested): return nested
+    flat = os.path.join(root, subdir_name)
+    if os.path.exists(flat): return flat
+    return None
+
+def _find_city_subdir(root):
+    """Detect city name from directory structure."""
+    for name in ['Chicago', 'NewYork', 'SanFrancisco', 'Seattle']:
+        if os.path.exists(os.path.join(root, name)):
+            return name
+    return None
+
+
 class VIGORDataset(Dataset):
     """
     VIGOR: Panorama ↔ Satellite matching.
-    Each panorama has GPS → matched to nearest satellite tiles.
+    Aligned with the original author's dataloader.
+
+    Split files (same_area_balanced_{train,test}.txt) contain full label lines:
+        pano.jpg  sat_pos.jpg  dx  dy  sat_semi1.jpg  ...  (13 fields)
+    So we read them directly — no need for separate pano_label_balanced.txt.
     """
     def __init__(self, cities_roots, cities, split="train",
                  sat_size=224, pano_size=(512, 128)):
         super().__init__()
         self.split = split
-        self.pairs = []
+        self.pairs = []           # (pano_path, sat_path, city, pos_sat_idx)
+        self.sat_index_dict = {}  # sat_filename → global gallery index
+        self.sat_paths = []       # full satellite gallery paths
 
         self.sat_tf = transforms.Compose([
             transforms.Resize((sat_size, sat_size)), transforms.ToTensor(),
@@ -475,7 +497,8 @@ class VIGORDataset(Dataset):
                 print(f"  [WARN] {city} not found: {root}"); continue
             self._load_city(root, city, split)
 
-        print(f"  [VIGOR {split}] {len(self.pairs)} pairs from {cities}")
+        print(f"  [VIGOR {split}] {len(self.pairs)} pairs, "
+              f"gallery: {len(self.sat_paths)} satellites from {cities}")
 
         # QUICK_TEST: limit data
         if QUICK_TEST:
@@ -487,140 +510,67 @@ class VIGORDataset(Dataset):
 
     def _load_city(self, root, city, split):
         """Load panorama↔satellite pairs from VIGOR directory."""
-        # Find the city subdirectory (e.g., Chicago, NewYork, etc.)
-        city_subdir = None
-        for name in ['Chicago', 'NewYork', 'SanFrancisco', 'Seattle']:
-            if os.path.exists(os.path.join(root, name)):
-                city_subdir = name
-                break
+        city_subdir = _find_city_subdir(root)
         if city_subdir is None:
             print(f"  [WARN] No city subdir found in {root}")
-            # Debug: list what IS in root
             if os.path.exists(root):
                 print(f"  [DEBUG] Contents of {root}: {os.listdir(root)[:10]}")
             return
 
         city_dir = os.path.join(root, city_subdir)
+        pano_dir = _resolve_img_dir(root, "panorama")
+        sat_dir = _resolve_img_dir(root, "satellite")
 
-        # Panorama and satellite directories (nested: panorama/panorama/, satellite/satellite/)
-        pano_dir = os.path.join(root, "panorama", "panorama")
-        sat_dir = os.path.join(root, "satellite", "satellite")
-        if not os.path.exists(pano_dir):
-            pano_dir = os.path.join(root, "panorama")
-        if not os.path.exists(sat_dir):
-            sat_dir = os.path.join(root, "satellite")
+        if pano_dir is None or sat_dir is None:
+            print(f"  [WARN] Missing panorama/satellite dir in {root}"); return
 
-        print(f"  [DEBUG {city}] pano_dir={pano_dir} exists={os.path.exists(pano_dir)}")
-        print(f"  [DEBUG {city}] sat_dir={sat_dir} exists={os.path.exists(sat_dir)}")
-
-        # List a few actual files in pano/sat dirs for format inspection
-        if os.path.exists(pano_dir):
-            pano_files = os.listdir(pano_dir)[:3]
-            print(f"  [DEBUG {city}] pano sample files: {pano_files}")
-        if os.path.exists(sat_dir):
-            sat_files = os.listdir(sat_dir)[:3]
-            print(f"  [DEBUG {city}] sat sample files: {sat_files}")
-
-        # Read split file: same_area_balanced_train.txt or same_area_balanced_test.txt
-        split_file = os.path.join(city_dir, f"same_area_balanced_{split}.txt")
-        if not os.path.exists(split_file):
-            print(f"  [WARN] Split file not found: {split_file}")
-            return
-
-        with open(split_file, 'r') as f:
-            # Split file has full label lines — extract only pano name (first field)
-            split_panos = set()
-            for line in f:
-                line = line.strip()
-                if line:
-                    split_panos.add(line.split()[0])
-        print(f"  [DEBUG {city}] split_panos: {len(split_panos)}, first 2: {list(split_panos)[:2]}")
-
-        # Read label file to get panorama → satellite mapping
-        label_file = os.path.join(city_dir, "pano_label_balanced.txt")
-        if not os.path.exists(label_file):
-            print(f"  [WARN] Label file not found: {label_file}")
-            return
-
-        # Read satellite list for index-to-filename mapping
+        # --- Build satellite gallery index from satellite_list.txt ---
         sat_list_file = os.path.join(city_dir, "satellite_list.txt")
-        sat_list = []
         if os.path.exists(sat_list_file):
             with open(sat_list_file, 'r') as f:
-                sat_list = [line.strip() for line in f if line.strip()]
-        print(f"  [DEBUG {city}] sat_list: {len(sat_list)} entries, first 2: {sat_list[:2]}")
+                for line in f:
+                    sat_name = line.strip()
+                    if sat_name and sat_name not in self.sat_index_dict:
+                        self.sat_index_dict[sat_name] = len(self.sat_paths)
+                        self.sat_paths.append(os.path.join(sat_dir, sat_name))
 
-        # Debug counters
-        n_total = 0; n_short = 0; n_not_in_split = 0
-        n_pano_miss = 0; n_sat_miss = 0; n_ok = 0
-        first_line = None
-        sample_pano_fail = None; sample_sat_fail = None
+        # --- Read split file directly (contains full label lines) ---
+        split_file = os.path.join(city_dir, f"same_area_balanced_{split}.txt")
+        if not os.path.exists(split_file):
+            print(f"  [WARN] Split file not found: {split_file}"); return
 
-        with open(label_file, 'r') as f:
+        n_ok = 0; n_miss = 0
+        with open(split_file, 'r') as f:
             for line in f:
-                raw = line.strip()
-                if not raw:
+                parts = line.strip().split()
+                if len(parts) < 2:
                     continue
-                n_total += 1
-                if first_line is None:
-                    first_line = raw
-
-                # Try space-separated first; if only 1 part, try comma
-                parts = raw.split()
-                if len(parts) < 2:
-                    # Possibly comma-separated
-                    parts = [p.strip() for p in raw.split(',')]
-                if len(parts) < 2:
-                    n_short += 1; continue
 
                 pano_name = parts[0]
-                if pano_name not in split_panos:
-                    n_not_in_split += 1; continue
+                pos_sat_name = parts[1]  # satellite FILENAME, not index
 
                 pano_path = os.path.join(pano_dir, pano_name)
-                if not os.path.exists(pano_path):
-                    n_pano_miss += 1
-                    if sample_pano_fail is None:
-                        sample_pano_fail = pano_path
-                    continue
+                sat_path = os.path.join(sat_dir, pos_sat_name)
 
-                # parts[1] is the positive satellite image name or index
-                pos_sat = parts[1]
-                # If sat_list exists and pos_sat is a digit, treat as index
-                if sat_list and pos_sat.isdigit():
-                    idx = int(pos_sat)
-                    if idx < len(sat_list):
-                        pos_sat = sat_list[idx]
+                if not os.path.exists(pano_path) or not os.path.exists(sat_path):
+                    n_miss += 1; continue
 
-                sat_path = os.path.join(sat_dir, pos_sat)
-                if not os.path.exists(sat_path):
-                    n_sat_miss += 1
-                    if sample_sat_fail is None:
-                        sample_sat_fail = sat_path
-                    continue
-
+                pos_idx = self.sat_index_dict.get(pos_sat_name, -1)
                 n_ok += 1
-                self.pairs.append((pano_path, sat_path, city))
+                self.pairs.append((pano_path, sat_path, city, pos_idx))
 
-        # Print debug summary
-        print(f"  [DEBUG {city}] label first line: {first_line}")
-        print(f"  [DEBUG {city}] total={n_total} short={n_short} "
-              f"not_in_split={n_not_in_split} pano_miss={n_pano_miss} "
-              f"sat_miss={n_sat_miss} OK={n_ok}")
-        if sample_pano_fail:
-            print(f"  [DEBUG {city}] sample pano miss: {sample_pano_fail}")
-        if sample_sat_fail:
-            print(f"  [DEBUG {city}] sample sat miss: {sample_sat_fail}")
+        print(f"  [{city} {split}] OK={n_ok} miss={n_miss} "
+              f"gallery_so_far={len(self.sat_paths)}")
 
     def __len__(self):
         return len(self.pairs)
 
     def __getitem__(self, idx):
-        pp, sp, city = self.pairs[idx]
+        pp, sp, city, pos_idx = self.pairs[idx]
         try:
             pano = Image.open(pp).convert("RGB")
             sat = Image.open(sp).convert("RGB")
-        except:
+        except Exception:
             pano = Image.new("RGB", (512, 128), (128, 128, 128))
             sat = Image.new("RGB", (224, 224), (128, 128, 128))
 
@@ -628,35 +578,99 @@ class VIGORDataset(Dataset):
             pano = self.pano_aug(pano); sat = self.sat_aug(sat)
         else:
             pano = self.pano_tf(pano); sat = self.sat_tf(sat)
-        return {"query": pano, "gallery": sat, "city": city, "idx": idx}
+        return {"query": pano, "gallery": sat, "city": city,
+                "idx": idx, "pos_sat_idx": pos_idx}
 
 
-# === EVALUATION ===
+# === SATELLITE GALLERY DATASET (for encoding full gallery) ===
+class SatGalleryDataset(Dataset):
+    """Simple dataset to encode all satellite images in the gallery."""
+    def __init__(self, sat_paths, sat_size=224):
+        self.sat_paths = sat_paths
+        self.tf = transforms.Compose([
+            transforms.Resize((sat_size, sat_size)), transforms.ToTensor(),
+            transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225]),
+        ])
+    def __len__(self): return len(self.sat_paths)
+    def __getitem__(self, idx):
+        try:
+            img = Image.open(self.sat_paths[idx]).convert("RGB")
+        except Exception:
+            img = Image.new("RGB", (224, 224), (128, 128, 128))
+        return self.tf(img)
+
+
+# === EVALUATION (CORRECT: full gallery) ===
 @torch.no_grad()
 def evaluate_vigor(model, cities_roots, eval_cities, sat_size, pano_size, device):
-    """Evaluate Hit Rate@K on VIGOR (same-area and/or cross-area)."""
+    """
+    Evaluate Hit Rate@K on VIGOR — correct protocol.
+
+    1. Build FULL satellite gallery from satellite_list.txt
+    2. Encode all gallery satellite embeddings
+    3. Encode all test panorama embeddings
+    4. Rank each query against the FULL gallery
+    5. Check if the positive satellite is in top-K
+    """
     model.eval()
 
-    # Build test dataset using the corrected VIGORDataset
+    # Build test dataset (also builds sat gallery internally)
     test_ds = VIGORDataset(cities_roots, eval_cities, "test", sat_size, pano_size)
-    if len(test_ds) == 0:
-        return {"HR@1": 0, "HR@5": 0, "HR@10": 0}
+    if len(test_ds) == 0 or len(test_ds.sat_paths) == 0:
+        return {"HR@1": 0, "HR@5": 0, "HR@10": 0, "HR@1%": 0}
+
+    # --- Step 1: Encode FULL satellite gallery ---
+    print(f"  Encoding gallery: {len(test_ds.sat_paths)} satellites...")
+    sat_gallery_ds = SatGalleryDataset(test_ds.sat_paths, sat_size)
+    sat_gallery_loader = DataLoader(sat_gallery_ds, batch_size=64,
+                                    shuffle=False, num_workers=4)
+    gallery_embs = []
+    for batch_sat in tqdm(sat_gallery_loader, desc="Gallery", leave=False):
+        emb = model.extract_embedding(batch_sat.to(device)).cpu()
+        gallery_embs.append(emb)
+    gallery_embs = torch.cat(gallery_embs, 0).numpy()  # (N_gallery, D)
+
+    # --- Step 2: Encode test panorama queries ---
+    print(f"  Encoding queries: {len(test_ds)} panoramas...")
     test_loader = DataLoader(test_ds, batch_size=64, shuffle=False, num_workers=4)
-
-    q_embs, r_embs = [], []
-    for batch in tqdm(test_loader, desc="Eval VIGOR", leave=False):
+    q_embs = []
+    gt_indices = []  # ground truth: index of positive satellite in gallery
+    for batch in tqdm(test_loader, desc="Query", leave=False):
         qe = model.extract_embedding(batch["query"].to(device)).cpu()
-        re = model.extract_embedding(batch["gallery"].to(device)).cpu()
-        q_embs.append(qe); r_embs.append(re)
+        q_embs.append(qe)
+        gt_indices.extend(batch["pos_sat_idx"].tolist())
+    q_embs = torch.cat(q_embs, 0).numpy()  # (N_query, D)
 
-    q_embs = torch.cat(q_embs, 0).numpy()
-    r_embs = torch.cat(r_embs, 0).numpy()
-    N = len(q_embs); gt = np.arange(N)
-    sim = q_embs @ r_embs.T; ranks = np.argsort(-sim, axis=1)
+    # --- Step 3: Compute HR@K against full gallery ---
+    N_q = len(q_embs)
+    N_g = len(gallery_embs)
+    top1_percent = max(1, int(N_g * 0.01))
 
-    results = {}
-    for k in [1, 5, 10]:
-        results[f"HR@{k}"] = sum(1 for i in range(N) if gt[i] in ranks[i,:k]) / N
+    # Compute similarity in chunks to save memory
+    CHUNK = 256
+    results = {f"HR@{k}": 0 for k in [1, 5, 10]}
+    results["HR@1%"] = 0
+
+    for start in range(0, N_q, CHUNK):
+        end = min(start + CHUNK, N_q)
+        sim_chunk = q_embs[start:end] @ gallery_embs.T  # (chunk, N_gallery)
+        ranks_chunk = np.argsort(-sim_chunk, axis=1)
+        for i in range(end - start):
+            gt_idx = gt_indices[start + i]
+            if gt_idx < 0:
+                continue  # skip if no valid ground truth
+            rank_pos = int(np.where(ranks_chunk[i] == gt_idx)[0][0])
+            if rank_pos < 1:  results["HR@1"] += 1
+            if rank_pos < 5:  results["HR@5"] += 1
+            if rank_pos < 10: results["HR@10"] += 1
+            if rank_pos < top1_percent: results["HR@1%"] += 1
+
+    for k in results:
+        results[k] = results[k] / N_q
+
+    print(f"  Gallery={N_g} | Queries={N_q} | "
+          f"HR@1={results['HR@1']:.2%} HR@5={results['HR@5']:.2%} "
+          f"HR@10={results['HR@10']:.2%} HR@1%={results['HR@1%']:.2%}")
     return results
 
 

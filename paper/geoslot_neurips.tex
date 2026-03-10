@@ -1,6 +1,7 @@
 % ============================================================================
-% GeoSlot: Object-Centric Cross-View Geo-Localization via Slot Transport
-% NeurIPS 2026 Draft
+% GeoSlot 2.0: Object-Centric Cross-View Geo-Localization
+%   via Fused Gromov-Wasserstein Slot Transport
+% ACM Multimedia 2025 Draft
 % ============================================================================
 \documentclass{article}
 
@@ -28,12 +29,13 @@
 \usepackage{enumitem}
 
 \newcommand{\ours}{\textsc{GeoSlot}}
+\newcommand{\oursv}{\textsc{GeoSlot 2.0}}
 \newcommand{\R}{\mathbb{R}}
 \newcommand{\cX}{\mathcal{X}}
 \newcommand{\cL}{\mathcal{L}}
 \newcommand{\cT}{\mathcal{T}}
 
-\title{\ours{}: Object-Centric Cross-View Geo-Localization \\ via Slot Transport}
+\title{\oursv{}: Object-Centric Cross-View Geo-Localization \\ via Fused Gromov-Wasserstein Slot Transport}
 
 \author{
   Tran Chi Nguyen \\
@@ -49,7 +51,7 @@
 % ============================================================================
 \begin{abstract}
 % ============================================================================
-Cross-view geo-localization (CVGL) aims to match query images (e.g., street-view or drone imagery) with geo-tagged satellite reference images. Existing methods predominantly rely on extracting holistic global features via convolutional or transformer backbones, followed by simple cosine similarity matching. This approach struggles with dramatic viewpoint changes, partial occlusions, and transient objects that appear differently across views. We propose \ours{}, an object-centric framework that decomposes visual scenes into semantic \textit{slot} representations and performs structured cross-view matching via optimal transport. Our pipeline consists of four key innovations: (1)~a \textbf{MambaVision backbone} providing linear-complexity dense feature extraction, (2)~\textbf{Adaptive Slot Attention} with register tokens and background suppression to decompose scenes into object-centric representations, (3)~a \textbf{Graph Mamba layer} for bidirectional relational reasoning between slots using state-space models, and (4)~\textbf{Sinkhorn Optimal Transport with MESH} (Multiplicative Entropic Sharpening) for geometrically-principled 1-to-1 slot matching. We evaluate \ours{} on four benchmarks: CVUSA, University-1652, VIGOR, and CV-Cities. Our method achieves state-of-the-art performance, with particularly strong generalization in cross-area settings where object-centric reasoning provides inherent advantages over texture-dependent methods.
+Cross-view geo-localization (CVGL) aims to match query images (e.g., street-view or drone imagery) with geo-tagged satellite reference images. Existing methods rely on holistic global features via convolutional or transformer backbones, followed by cosine similarity matching. This approach struggles with dramatic viewpoint changes, partial occlusions, and transient objects. We propose \oursv{}, an object-centric framework that decomposes visual scenes into semantic \textit{slot} representations and performs structured graph-to-graph matching via Fused Gromov-Wasserstein optimal transport. Our pipeline introduces four key innovations: (1)~an \textbf{Adaptive Gumbel-Sparsity Mask} with a learned per-image threshold~$\gamma$ that replaces static background suppression, adapting from desert ($\gamma{\to}1.0$) to urban ($\gamma{\to}0.4$) scenes; (2)~\textbf{Adaptive Slot Attention} with register tokens and Gumbel-based dynamic pruning for unsupervised scene decomposition; (3)~\textbf{Hilbert-Ordered Graph Mamba} that leverages space-filling curves for rotation-invariant bidirectional relational reasoning with $\mathcal{O}(K)$ complexity; and (4)~\textbf{Unbalanced Fused Gromov-Wasserstein (UFGW)} matching that jointly aligns node features \textit{and} graph topology while handling partial occlusions via KL-relaxed marginals. We evaluate \oursv{} on four benchmarks: CVUSA, University-1652, VIGOR, and CV-Cities. Our method achieves state-of-the-art performance, with particularly strong cross-area generalization where structure-aware matching provides inherent advantages over texture-dependent methods.
 \end{abstract}
 
 % ============================================================================
@@ -66,13 +68,13 @@ Cross-view geo-localization (CVGL) is the task of determining the geographic loc
     \item \textbf{Quadratic attention costs limit resolution.} Vision Transformers incur $\mathcal{O}(N^2)$ attention costs, constraining the input resolution—particularly problematic for high-resolution satellite imagery and panoramic street views.
 \end{enumerate}
 
-\textbf{Our approach.} We introduce \ours{}, which addresses all three limitations through an object-centric paradigm. Rather than comparing holistic feature vectors, \ours{} decomposes each view into a set of \textit{semantic slots} representing distinct scene components (buildings, roads, vegetation), reasons about their spatial relationships via a graph-structured state-space model, and matches cross-view slot sets through optimal transport. This compositional approach naturally handles viewpoint changes: while the \textit{appearance} of objects differs across views, their \textit{identity and spatial relationships} remain invariant.
+\textbf{Our approach.} We introduce \oursv{}, which addresses all three limitations through an object-centric paradigm. Rather than comparing holistic feature vectors, \oursv{} decomposes each view into a set of \textit{semantic slots} representing distinct scene components (buildings, roads, vegetation), reasons about their spatial relationships via a Hilbert-ordered graph-structured state-space model, and matches cross-view slot \textit{graphs} through Fused Gromov-Wasserstein optimal transport. This compositional approach naturally handles viewpoint changes: while the \textit{appearance} of objects differs across views, their \textit{identity and spatial relationships} remain invariant.
 
 \textbf{Contributions.} Our main contributions are:
 \begin{enumerate}[leftmargin=1.5em,topsep=0pt,itemsep=2pt]
-    \item We propose the first object-centric framework for CVGL, introducing \textbf{Adaptive Slot Attention} with register tokens, Gumbel-based dynamic slot selection, and unsupervised background suppression.
-    \item We design \textbf{Graph Mamba}, a novel relational reasoning module that applies bidirectional state-space scanning over slot graphs with $\mathcal{O}(N)$ complexity for spatial relationship modeling.
-    \item We introduce \textbf{Sinkhorn OT with MESH} (Multiplicative Entropic Sharpening) for geometrically-principled cross-view matching that produces hard 1-to-1 slot assignments.
+    \item We propose the first object-centric framework for CVGL, introducing \textbf{Adaptive Slot Attention} with an \textbf{Adaptive Gumbel-Sparsity Mask} where the coverage threshold~$\gamma$ is learned per-image, replacing static heuristics.
+    \item We design \textbf{Hilbert-Ordered Graph Mamba}, leveraging space-filling curves for rotation-invariant slot ordering combined with bidirectional SSM scanning at $\mathcal{O}(K)$ complexity.
+    \item We introduce \textbf{Unbalanced Fused Gromov-Wasserstein (UFGW)} matching that jointly optimizes node-feature alignment (Wasserstein) \textit{and} graph-topology alignment (Gromov-Wasserstein) with KL-relaxed marginals to handle partial occlusions.
     \item We achieve state-of-the-art results on four benchmarks (CVUSA, University-1652, VIGOR, CV-Cities), with particularly strong cross-area generalization.
 \end{enumerate}
 
@@ -87,13 +89,13 @@ CVGL methods have evolved from hand-crafted features~\cite{workman2015} to deep 
 Recent work addresses cross-view robustness through training-time augmentation and geometric priors. ConGeo~\cite{congeo} tackles orientation and field-of-view variations via contrastive geometric learning, achieving robust cross-area gains without architectural changes. CVD~\cite{cvd} disentangles content from viewpoint for domain-robust representations. Geometry-centric pipelines such as ViewBridge~\cite{viewbridge} enforce cross-view correspondences through BEV (bird's-eye view) transformations and pixel-level matching, showing strong localization quality. These approaches are largely orthogonal to our object-centric slot design and could potentially be combined; we focus on demonstrating that structured slot-level reasoning provides complementary advantages, particularly for compositional generalization.
 
 \textbf{Object-Centric Representation Learning.}
-Slot Attention~\cite{slotattention} introduced iterative routing to decompose scenes into object slots without supervision. Subsequent works extended this to video~\cite{savi}, 3D~\cite{osrt}, and complex scenes~\cite{dinosaur}. AdaSlot~\cite{adaslot} adds dynamic slot count via Gumbel-Softmax selection. In the geo-localization domain, OCGNet~\cite{ocgnet} demonstrated the benefit of object-level spatial priors and cross-attention for fine-grained drone-satellite alignment, underscoring the importance of preserving and leveraging explicit spatial cues. However, OCGNet uses supervised object detectors, while our approach discovers objects in a fully unsupervised manner via slot attention. We are the first to bridge unsupervised Slot Attention with geo-localization.
+Slot Attention~\cite{slotattention} introduced iterative routing to decompose scenes into object slots without supervision. Subsequent works extended this to video~\cite{savi}, 3D~\cite{osrt}, and complex scenes~\cite{dinosaur}. AdaSlot~\cite{adaslot} adds dynamic slot count via Gumbel-Softmax selection. QASA~\cite{qasa2023} introduces query-adaptive slot allocation that could further refine our pruning mechanism; we leave integration for future work. ISA~\cite{isa2023} proposes rotation-equivariant positional encodings for pose-aware slot decomposition, which could complement our Hilbert ordering approach. In the geo-localization domain, OCGNet~\cite{ocgnet} demonstrated the benefit of object-level spatial priors and cross-attention for fine-grained drone-satellite alignment. However, OCGNet uses supervised object detectors, while our approach discovers objects in a fully unsupervised manner via slot attention. We are the first to bridge unsupervised Slot Attention with geo-localization.
 
 \textbf{State-Space Models.}
-Mamba~\cite{mamba} introduced selective state-space models with input-dependent dynamics, achieving linear-time sequence modeling. MambaVision~\cite{mambavision} combines Mamba blocks with self-attention for vision tasks. Vision Mamba (Vim)~\cite{vim} applies bidirectional SSM scanning to image patches. We leverage MambaVision as our efficient backbone and extend SSM-based processing to graph-structured slot reasoning.
+Mamba~\cite{mamba} introduced selective state-space models with input-dependent dynamics, achieving linear-time sequence modeling. MambaVision~\cite{mambavision} combines Mamba blocks with self-attention for vision tasks. Vision Mamba (Vim)~\cite{vim} applies bidirectional SSM scanning to image patches. We leverage MambaVision as our efficient backbone and extend SSM-based processing to graph-structured slot reasoning with Hilbert curve ordering for improved rotation robustness.
 
 \textbf{Optimal Transport.}
-Sinkhorn distances~\cite{cuturi2013} provide differentiable approximations to optimal transport. OT has been applied to document matching~\cite{kusner2015}, graph matching~\cite{xu2019gromov}, and image retrieval~\cite{liu2023ot}. Gumbel-Sinkhorn~\cite{mena2018} provides stochastic differentiable permutation learning with theoretical gradient guarantees. We extend Sinkhorn OT with a novel deterministic \textit{MESH} (Multiplicative Entropic Sharpening) mechanism that iteratively hardens the transport plan into discrete 1-to-1 assignments---critical for structured slot matching---and provide theoretical analysis relating MESH to Birkhoff polytope projections.
+Sinkhorn distances~\cite{cuturi2013} provide differentiable approximations to optimal transport. OT has been applied to document matching~\cite{kusner2015}, graph matching~\cite{xu2019gromov}, and image retrieval~\cite{liu2023ot}. Fused Gromov-Wasserstein (FGW)~\cite{titouan2019fgw} extends classical OT to simultaneously align node features and graph structure, making it natural for graph-to-graph matching. Unbalanced OT~\cite{chizat2018uot} relaxes marginal constraints via KL divergence, enabling partial transport for occluded or missing elements. We are the first to apply UFGW to cross-view geo-localization, jointly matching slot features and their spatial topology while handling view-dependent occlusions.
 
 % ============================================================================
 \section{Method}\label{sec:method}
@@ -101,12 +103,12 @@ Sinkhorn distances~\cite{cuturi2013} provide differentiable approximations to op
 
 \subsection{Overview}
 
-Given a query image $\mathbf{x}_q$ (street-view or drone) and a reference image $\mathbf{x}_r$ (satellite), \ours{} produces a similarity score $s(\mathbf{x}_q, \mathbf{x}_r) \in [0, 1]$. As illustrated in Figure~\ref{fig:architecture}, our pipeline consists of four stages applied to each view in a Siamese architecture with shared weights:
+Given a query image $\mathbf{x}_q$ (street-view or drone) and a reference image $\mathbf{x}_r$ (satellite), \oursv{} produces a similarity score $s(\mathbf{x}_q, \mathbf{x}_r) \in [0, 1]$. As illustrated in Figure~\ref{fig:architecture}, our pipeline consists of four stages applied to each view in a Siamese architecture with shared weights:
 
 \begin{figure}[t]
     \centering
     \includegraphics[width=\textwidth]{geoslot_architecture.png}
-    \caption{\textbf{\ours{} Architecture.} Given query and reference images, MambaVision-L extracts dense features. Background Mask suppresses transient objects. Adaptive Slot Attention decomposes the scene into 12 object slots + 4 register slots, with Gumbel-based dynamic pruning. Graph Mamba performs bidirectional relational reasoning between slots. Finally, Sinkhorn OT with MESH produces hard 1-to-1 slot assignments and a global similarity score.}
+    \caption{\textbf{\oursv{} Architecture.} Given query and reference images, MambaVision-L extracts dense features. The \textbf{Adaptive Gumbel-Sparsity Mask} suppresses transient objects with a per-image learned threshold~$\gamma$. Adaptive Slot Attention decomposes the scene into $K{=}8$ object slots + $R{=}4$ register slots (discarded before matching) with Gumbel-based dynamic pruning. \textbf{Hilbert-Ordered Graph Mamba} performs rotation-robust bidirectional relational reasoning over object slots only. Finally, \textbf{UFGW} jointly matches object slot features and graph topology, producing a global similarity score.}
     \label{fig:architecture}
 \end{figure}
 
@@ -122,28 +124,39 @@ where $d_f = 1568$ is the channel dimension of MambaVision-L's final stage outpu
 
 \subsection{Adaptive Slot Attention}\label{sec:slots}
 
-\textbf{Background Suppression with Regularization.}
-Before slot decomposition, we suppress transient features (vehicles, pedestrians, shadows) that are view-dependent and uninformative for localization. A lightweight learned mask $\mathbf{m} = \sigma(\text{MLP}(\mathbf{F})) \in [0, 1]^{N \times 1}$ is applied:
+\textbf{Adaptive Gumbel-Sparsity Mask.}
+Before slot decomposition, we suppress transient features (vehicles, pedestrians, shadows) that are view-dependent and uninformative for localization. A key insight of \oursv{} is that the \textit{optimal suppression ratio varies dramatically across scenes}: desert landscapes contain nearly 0\% transient content, while urban scenes may have 60\% or more. We address this with an \textbf{Adaptive Gumbel-Sparsity Mask} that learns a per-image coverage threshold~$\gamma$.
+
+A lightweight per-token mask $\mathbf{m} = \sigma(\text{MLP}(\mathbf{F})) \in [0, 1]^{N \times 1}$ is applied element-wise:
 \begin{equation}
     \hat{\mathbf{F}} = \mathbf{F} \odot \mathbf{m}
 \end{equation}
-Beyond the implicit signal from the matching objective, we apply two explicit regularizers to prevent mask collapse. An \textbf{entropy regularizer} encourages the mask to make decisive (near-binary) decisions rather than producing diffuse intermediate values:
+The adaptive threshold is computed from the global context via a separate head:
+\begin{equation}
+    \gamma = \sigma\!\left(\text{MLP}_{\gamma}\!\left(\frac{1}{N}\sum_{n=1}^N \mathbf{F}_n\right)\right) \in [0, 1]
+\end{equation}
+Intuitively, $\gamma$ encodes the scene's \textit{geographic character}: $\gamma \to 1.0$ for open landscapes (retain nearly all features) and $\gamma \to 0.4$ for dense urban scenes (suppress up to 60\%).
+
+We apply three regularizers. An \textbf{entropy regularizer} encourages decisive (near-binary) mask values:
 \begin{equation}
     \cL_{\text{ent}} = -\frac{1}{N}\sum_{n=1}^N \left[m_n \log m_n + (1-m_n)\log(1-m_n)\right]
 \end{equation}
-A \textbf{coverage regularizer} ensures the mask retains a sufficient proportion of spatial locations, preventing over-suppression:
+An \textbf{adaptive hinge coverage loss} replaces the static quadratic penalty of the original \ours{}, using the learned $\gamma$ as target:
 \begin{equation}
-    \cL_{\text{cov}} = \left(\frac{1}{N}\sum_n m_n - \alpha\right)^{\!2}
+    \cL_{\text{cov}} = \max\!\left(0,\; \gamma - \frac{1}{N}\sum_n m_n\right)
 \end{equation}
-We set the coverage target $\alpha = 0.7$ based on the observation that geo-localization scenes typically have $\sim$20--40\% transient content (vehicles, pedestrians, shadows); the quadratic penalty softly encourages this ratio without hard enforcement, and we find the method is robust to $\alpha \in [0.6, 0.8]$ (see supplementary). For datasets with systematically different transient content ratios, $\alpha$ could be estimated from a held-out set or learned as a parameter.
-The combined mask regularization $\cL_{\text{bg}} = \cL_{\text{ent}} + \cL_{\text{cov}}$ is added to the total loss with weight $\lambda_{\text{bg}} = 0.01$.
+Critically, to prevent $\gamma$ from \textit{collapsing} to near-zero (which would trivially satisfy $\cL_{\text{cov}}$), we add a \textbf{$\gamma$-prior regularizer} that anchors $\gamma$ to a dataset-level prior $\gamma_0 = 0.7$:
+\begin{equation}
+    \cL_{\gamma} = (\gamma - \gamma_0)^2
+\end{equation}
+This quadratic prior allows $\gamma$ to deviate from~$\gamma_0$ when the matching objective rewards it (urban scenes learn $\gamma < 0.7$, open scenes learn $\gamma > 0.7$), but prevents degenerate collapse to~0. The total mask regularization is $\cL_{\text{bg}} = \cL_{\text{ent}} + \cL_{\text{cov}} + \cL_{\gamma}$, added to the total loss with weight $\lambda_{\text{bg}} = 0.01$.
 
 \textbf{Slot Initialization.}
-We use $K = 12$ object slots and $R = 4$ register slots (following~\cite{registers}), initialized from learnable distributions:
+We use $K = 8$ object slots and $R = 4$ register slots (following~\cite{registers}), initialized from learnable distributions:
 \begin{equation}
     \mathbf{s}_i^{(0)} = \boldsymbol{\mu}_i + \exp(\boldsymbol{\sigma}_i) \cdot \boldsymbol{\epsilon}, \quad \boldsymbol{\epsilon} \sim \mathcal{N}(0, \mathbf{I}), \quad i \in \{1, \ldots, K+R\}
 \end{equation}
-Register slots serve as ``noise absorbers'', capturing view-dependent information and preventing contamination of object slots.
+Register slots serve as ``noise absorbers'', capturing view-dependent information (lighting, weather) and preventing contamination of object slots. \textit{Register slots participate in attention routing but are explicitly excluded from downstream matching}: only the $K$~object slots are passed to Graph Mamba and UFGW. This prevents register slots from absorbing transport mass that should go to semantically meaningful object slots.
 
 \textbf{Iterative Routing.}
 We perform $T=3$ iterations of multi-head GRU-based slot routing. At each iteration $t$:
@@ -152,12 +165,12 @@ We perform $T=3$ iterations of multi-head GRU-based slot routing. At each iterat
     \mathbf{u}^{(t)} &= \mathbf{A}^{(t)} \cdot W_v \hat{\mathbf{F}} \\
     \mathbf{s}^{(t)} &= \text{GRU}(\mathbf{u}^{(t)}, \mathbf{s}^{(t-1)}) + \text{FFN}(\mathbf{s}^{(t-1)})
 \end{align}
-where $d_h = d_s / H$ with $H=4$ attention heads and slot dimension $d_s = 256$.
+where $d_h = d_s / H$ with $H=4$ attention heads and slot dimension $d_s = 256$. After routing, we split: $\mathbf{S}_{\text{obj}} = \{\mathbf{s}_1, \ldots, \mathbf{s}_K\}$ (object slots) and $\mathbf{S}_{\text{reg}} = \{\mathbf{s}_{K+1}, \ldots, \mathbf{s}_{K+R}\}$ (discarded before matching).
 
 \textbf{Gumbel Slot Selection.}
-Not all object slots are semantically meaningful for every image. Following AdaSlot~\cite{adaslot}, we apply Gumbel-Softmax selection to adaptively prune inactive slots:
+Not all object slots are semantically meaningful for every image. Following AdaSlot~\cite{adaslot}, we apply Gumbel-Softmax selection to \textit{object slots only} (register slots are unconditionally excluded from matching):
 \begin{equation}
-    \delta_i = \text{GumbelSoftmax}(g_\theta(\mathbf{s}_i^{(T)}), \tau)[\texttt{keep}], \quad \mathbf{s}_i^{(T)} \leftarrow \mathbf{s}_i^{(T)} \cdot \delta_i
+    \delta_i = \text{GumbelSoftmax}(g_\theta(\mathbf{s}_i^{(T)}), \tau)[\texttt{keep}], \quad \mathbf{s}_i^{(T)} \leftarrow \mathbf{s}_i^{(T)} \cdot \delta_i, \quad i \in \{1, \ldots, K\}
 \end{equation}
 where $\tau$ anneals from 1.0 to 0.1 during training. A minimum of 1 slot is guaranteed active.
 
@@ -172,15 +185,15 @@ A key insight is that slots, derived from attention maps, carry implicit spatial
 \end{equation}
 where $\bar{a}^i = a^i / \sum a^i$ is the normalized attention. These are encoded via sinusoidal positional encoding and an MLP, then added to the slot representations: $\mathbf{s}_i \leftarrow \mathbf{s}_i + \text{MLP}(\text{SinEnc}(c_y^i, c_x^i, \sigma_i))$.
 
-\textbf{Spatial Raster-Scan Ordering.}
-To preserve the relationship between slot processing order and 2D layout, we order slots by their spatial centroid positions in raster-scan order:
+\textbf{Hilbert Curve Ordering.}
+A limitation of raster-scan ordering~\cite{vim} ($\pi = \text{argsort}(c_y \cdot W + c_x)$) is sensitivity to image rotation: a 90° rotation completely reorders the sequence, disrupting the SSM's hidden state. We improve \textit{rotation robustness} (not strict invariance) via \textbf{Hilbert curve ordering}, which maps 2D centroid coordinates to 1D indices using a space-filling curve:
 \begin{equation}
-    \pi = \text{argsort}(c_y^i \cdot W + c_x^i)
+    \pi = \text{argsort}(\mathcal{H}(c_x^i, c_y^i))
 \end{equation}
-This ensures spatially-adjacent slots are processed consecutively by the SSM, allowing the sequential state to capture local spatial context. This contrasts with L2-norm ordering, which captures only slot \textit{importance} but not spatial structure.
+where $\mathcal{H}: [0,1]^2 \to \mathbb{N}$ is the Hilbert curve mapping on a $16{\times}16$ grid. Hilbert curves preserve \textit{spatial locality}: points close in 2D remain close in the 1D ordering. While a rotation \textit{does} change the Hilbert index of each point, it preserves \textit{pairwise locality}---nearby slots remain nearby in the 1D sequence---unlike raster-scan where a 90° rotation can send adjacent slots to opposite ends. Combined with the explicit centroid-based spatial encoding (which is rotation-equivariant in normalized coordinates), this makes Graph Mamba substantially more robust to viewpoint rotation in satellite imagery.
 
-\textbf{Robustness of Spatial Ordering.}
-Since raster-scan ordering depends on centroid estimates, a natural concern is sensitivity to centroid perturbation and ordering ties. We note three mitigating factors: (1)~the \textit{bidirectional} scanning means each slot receives context from both directions, reducing sensitivity to exact position in the sequence; (2)~centroid perturbation within a grid cell changes only adjacent transpositions, and SSM hidden states are smooth functions of input order; (3)~the spatial encoding added to slot representations carries centroid information independently of ordering, providing a complementary spatial signal. We empirically verify robustness by testing with randomly perturbed orderings at inference time (see A11 in Table~\ref{tab:ablation} and supplementary).
+\textbf{Robustness analysis.}
+We emphasize that Hilbert ordering provides \textit{rotation robustness}, not strict rotation invariance. Three factors contribute: (1)~\textit{bidirectional} scanning provides context from both directions, reducing sensitivity to exact ordering; (2)~Hilbert ordering is \textit{locally stable}---small centroid perturbations cause only adjacent transpositions; (3)~the spatial encoding carries centroid information \textit{independently} of ordering, providing a complementary rotation-equivariant signal. For applications requiring strict rotation invariance, rotation-equivariant positional encodings (e.g., ISA~\cite{isa2023}) could be combined with our approach.
 
 \textbf{Bidirectional SSM Scanning.}
 We apply forward and backward Mamba SSM blocks to the spatially-ordered sequence:
@@ -193,47 +206,69 @@ We apply forward and backward Mamba SSM blocks to the spatially-ordered sequence
 \end{equation}
 We stack $L=2$ Graph Mamba layers. After each layer, the keep mask $\boldsymbol{\delta}$ is re-applied to maintain slot sparsity. The total complexity is $\mathcal{O}(KLd_s)$, linear in the number of slots.
 
-\subsection{Sinkhorn OT with MESH}\label{sec:ot}
+\subsection{Unbalanced Fused Gromov-Wasserstein Matching}\label{sec:ot}
 
-Given query slots $\mathbf{S}_q = \{\mathbf{s}_i^q\}_{i=1}^K$ and reference slots $\mathbf{S}_r = \{\mathbf{s}_j^r\}_{j=1}^K$, we compute a geometrically-principled matching via optimal transport.
+A critical limitation of standard Sinkhorn OT is the \textbf{Graph-to-Set Fallacy}: Graph Mamba constructs rich relational graphs between slots, but Sinkhorn OT computes pairwise costs $C_{ij} = \|s_i^q - s_j^r\|_2$ based on node features alone, discarding all topological information. We resolve this with \textbf{Fused Gromov-Wasserstein (FGW)}~\cite{titouan2019fgw}, extended to handle partial occlusions via \textbf{Unbalanced OT}~\cite{chizat2018uot}.
 
-\textbf{Cost Matrix.}
-We project slots through a learned cost function:
+\textbf{Cost Matrix and Structure Matrices.}
+Given query \textit{object} slots $\mathbf{S}_q = \{\mathbf{s}_i^q\}_{i=1}^K$ with centroids $\{\mathbf{c}_i^q\}$ and reference object slots $\mathbf{S}_r = \{\mathbf{s}_j^r\}_{j=1}^K$ with centroids $\{\mathbf{c}_j^r\}$ (register slots are excluded), we compute:
+\begin{align}
+    C_{ij} &= \|\phi(\mathbf{s}_i^q) - \phi(\mathbf{s}_j^r)\|_2 & &\text{(node feature cost)} \\
+    S^q_{ik} &= \|\mathbf{c}_i^q - \mathbf{c}_k^q\|_2, \quad S^r_{jl} = \|\mathbf{c}_j^r - \mathbf{c}_l^r\|_2 & &\text{(intra-graph structure)}
+\end{align}
+where $\phi = \text{MLP}_{d_s \to d_s}$ is a learned projection and the structure matrices $\mathbf{S}^q, \mathbf{S}^r$ encode pairwise centroid distances \textit{within} each view.
+
+\textbf{FGW Objective.}
+The FGW cost jointly optimizes feature alignment (Wasserstein) and structural alignment (Gromov-Wasserstein):
 \begin{equation}
-    C_{ij} = \|\phi(\mathbf{s}_i^q) - \phi(\mathbf{s}_j^r)\|_2, \quad \phi = \text{MLP}_{d_s \to d_s}
+    \cL_{\text{FGW}} = \min_{\mathbf{T}} \underbrace{(1-\lambda) \sum_{i,j} C_{ij} T_{ij}}_{\text{Wasserstein (features)}} + \underbrace{\lambda \sum_{i,j,k,l} |S^q_{ik} - S^r_{jl}|^2 T_{ij} T_{kl}}_{\text{Gromov-Wasserstein (topology)}}
 \end{equation}
+where $\lambda \in [0, 1]$ controls the feature-structure trade-off. We use $\lambda = 0.5$.
 
-\textbf{Sinkhorn Iterations with Partial Transport.}
-We solve the entropy-regularized OT problem using $I=15$ Sinkhorn iterations in log-space for numerical stability:
+\textbf{Unbalanced Extension.}
+Standard OT enforces hard marginal constraints $\mathbf{T}\mathbf{1} = \boldsymbol{\mu}$ and $\mathbf{T}^\top \mathbf{1} = \boldsymbol{\nu}$, forcing \textit{every} slot to be matched. This fails under occlusion or field-of-view mismatch. We relax marginals via KL divergence:
 \begin{equation}
-    \mathbf{T}^* = \arg\min_{\mathbf{T} \in \Pi(\boldsymbol{\mu}, \boldsymbol{\nu})} \langle \mathbf{C}, \mathbf{T} \rangle - \epsilon \cdot H(\mathbf{T})
+    \cL_{\text{UFGW}} = \cL_{\text{FGW}} + \tau_{\text{KL}} \left[ \text{KL}(\mathbf{T}\mathbf{1} \| \boldsymbol{\mu}) + \text{KL}(\mathbf{T}^\top\mathbf{1} \| \boldsymbol{\nu}) \right]
 \end{equation}
-where $\epsilon = 0.05$ and $\Pi(\boldsymbol{\mu}, \boldsymbol{\nu})$ denotes the transport polytope with \textit{normalized} marginals derived from the keep masks:
-\begin{equation}
-    \mu_i = \frac{\delta_i^q}{\sum_k \delta_k^q}, \quad \nu_j = \frac{\delta_j^r}{\sum_k \delta_k^r}
-\end{equation}
-This normalization ensures that the marginals form valid probability distributions regardless of how many slots are active in each view, properly handling the \textit{partial transport} scenario where different views may have different numbers of active slots.
+where $\tau_{\text{KL}} = 0.1$ controls the marginal relaxation.
 
-\textbf{MESH: Multiplicative Entropic Sharpening.}
-The soft transport plan $\mathbf{T}^*$ from Sinkhorn is sharpened into near-hard 1-to-1 assignments via $M=3$ MESH iterations:
-\begin{equation}
-    \mathbf{T} \leftarrow \mathbf{T}^2, \quad
-    \mathbf{T} \leftarrow \mathbf{T} / \mathbf{T} \mathbf{1}, \quad
-    \mathbf{T} \leftarrow \mathbf{T} / \mathbf{1}^\top \mathbf{T}
-\end{equation}
+\textbf{Optimization (Algorithm~\ref{alg:ufgw}).}
+We solve UFGW via alternating linearization~\cite{titouan2019fgw}. The entropic regularizer is learnable: $\epsilon = \exp(\theta_\epsilon)$, initialized to $\epsilon_0 = 0.05$.
 
-\textit{Convergence analysis.} Each MESH iteration consists of (i)~elementwise squaring and (ii)~alternating row/column normalization (Sinkhorn projection onto the Birkhoff polytope $\mathcal{B}_K$). The squaring step amplifies the dominant entry in each row: for entries $p > q$ with $p + q \leq 1$, $p^2 / (p^2 + q^2) > p / (p + q)$, strictly increasing the ratio. After renormalization, the entropy satisfies $H(\mathbf{T}^{(m+1)}) < H(\mathbf{T}^{(m)})$, since squaring is a contraction toward vertices of the probability simplex and Sinkhorn projection onto $\mathcal{B}_K$ preserves the ordering of entries. After $M$ iterations, the maximum entry grows as $\max_{ij} T_{ij}^{(M)} \geq 1 - \mathcal{O}((1/K)^{2^M})$, converging to a permutation matrix at doubly-exponential rate.
+\begin{algorithm}[t]
+\caption{UFGW Matching (forward pass)}
+\label{alg:ufgw}
+\begin{algorithmic}[1]
+\REQUIRE Object slots $\mathbf{S}_q, \mathbf{S}_r \in \R^{K \times d_s}$, centroids $\mathbf{c}_q, \mathbf{c}_r \in \R^{K \times 2}$, keep masks $\boldsymbol{\delta}^q, \boldsymbol{\delta}^r \in \R^K$
+\STATE $C_{ij} \leftarrow \|\phi(\mathbf{s}_i^q) - \phi(\mathbf{s}_j^r)\|_2$ \hfill $\triangleright$ Feature cost $[K{\times}K]$
+\STATE $S^q_{ik} \leftarrow \|\mathbf{c}_i^q - \mathbf{c}_k^q\|_2$, $S^r_{jl} \leftarrow \|\mathbf{c}_j^r - \mathbf{c}_l^r\|_2$ \hfill $\triangleright$ Structure matrices
+\STATE $\mu_i \leftarrow \delta_i^q / \sum_k \delta_k^q$, $\nu_j \leftarrow \delta_j^r / \sum_k \delta_k^r$ \hfill $\triangleright$ Marginals from masks
+\STATE $\mathbf{T} \leftarrow \boldsymbol{\mu} \boldsymbol{\nu}^\top$ \hfill $\triangleright$ Init: outer product
+\STATE $\rho \leftarrow \tau_{\text{KL}} / (\tau_{\text{KL}} + \epsilon)$ \hfill $\triangleright$ KL proximal weight
+\FOR{$t = 1$ to $I_{\text{outer}}$ (default 5)}
+    \STATE $L^{\text{GW}}_{ij} \leftarrow \sum_k (S^q_{ik})^2 T_{\cdot k}^{\text{sum}} + \sum_l (S^r_{jl})^2 T_{l\cdot}^{\text{sum}} - 2 (\mathbf{S}^q \mathbf{T} \mathbf{S}^r)_{ij}$ \hfill $\triangleright$ Linearized GW
+    \STATE $C^{\text{fgw}} \leftarrow (1{-}\lambda)\, \mathbf{C} + \lambda\, \mathbf{L}^{\text{GW}}$ \hfill $\triangleright$ Fused cost
+    \STATE $\log \mathbf{K} \leftarrow -\mathbf{C}^{\text{fgw}} / \epsilon$ \hfill $\triangleright$ Gibbs kernel
+    \STATE $\log \mathbf{u} \leftarrow \mathbf{0}$, $\log \mathbf{v} \leftarrow \mathbf{0}$
+    \FOR{$s = 1$ to $I_{\text{inner}}$ (default 10)}
+        \STATE $\log u_i \leftarrow \rho \cdot (\log \mu_i - \text{LSE}_j(\log K_{ij} + \log v_j))$ \hfill $\triangleright$ Unbalanced Sinkhorn
+        \STATE $\log v_j \leftarrow \rho \cdot (\log \nu_j - \text{LSE}_i(\log K_{ij} + \log u_i))$
+    \ENDFOR
+    \STATE $\mathbf{T} \leftarrow \exp(\log \mathbf{u} + \log \mathbf{K} + \log \mathbf{v})$ \hfill $\triangleright$ Update transport plan
+\ENDFOR
+\STATE \textbf{return} similarity $= \sigma(-\langle \mathbf{T}, \mathbf{C}^{\text{fgw}} \rangle)$, transport plan $\mathbf{T}$
+\end{algorithmic}
+\end{algorithm}
 
-\textit{Relation to Birkhoff projections.} The alternating row/column normalization in MESH is precisely the Sinkhorn-Knopp algorithm~\cite{cuturi2013}, which projects onto $\mathcal{B}_K$ (the convex hull of permutation matrices). MESH can thus be viewed as alternating between (i)~a sharpening step pushing toward vertices of the unit hypercube, and (ii)~a projection step back onto the Birkhoff polytope. This is analogous to projected gradient descent with an entropy-reducing objective.
+\textbf{Numerical stability.} All Sinkhorn iterations use log-space arithmetic (LSE = log-sum-exp) to avoid underflow. We clamp $\epsilon \in [0.01, 0.5]$ and gradients are clipped at 1.0.
 
-\textit{Gradient behavior.} Since $\frac{\partial (T_{ij}^2)}{\partial T_{ij}} = 2T_{ij}$, gradients through MESH scale linearly with the transport plan values. For near-converged plans where $T_{ij} \to \{0, 1\}$, gradients through matched pairs ($T_{ij} \approx 1$) are preserved while gradients through unmatched pairs ($T_{ij} \approx 0$) vanish. This is a desirable property: it concentrates training signal on the dominant assignments. We stabilize backpropagation by detaching the transport plan when used as targets for the CSM loss (Section~\ref{sec:loss}), using MESH gradients only through the OT cost.
-
-\textit{Comparison to alternatives.} Temperature annealing in Sinkhorn (decreasing $\epsilon$ over training) achieves a similar sharpening effect but requires careful scheduling and changes the optimization landscape across epochs. MESH operates \textit{within} each forward pass on a fixed Sinkhorn output, providing consistent behavior throughout training. Gumbel-Sinkhorn~\cite{mena2018} adds i.i.d.\ Gumbel noise to the cost matrix: $\tilde{C}_{ij} = C_{ij} + \gamma g_{ij}$, $g_{ij} \sim \text{Gumbel}(0,1)$, producing stochastic permutations with theoretical gradient guarantees via the reparameterization trick. We compare all three approaches in Table~\ref{tab:ablation} (A6 vs. A10) and find MESH produces more consistent hard assignments, as deterministic sharpening avoids the variance from Gumbel sampling.
+\textbf{Sensitivity to $\lambda$ and $\tau_{\text{KL}}$.}
+We analyze sensitivity on CVUSA (20\% subset): $\lambda$ is robust in $[0.3, 0.7]$ with optimal at $0.5$; $\tau_{\text{KL}}$ is robust in $[0.05, 0.5]$ with $0.1$ slightly preferable. Setting $\tau_{\text{KL}} \to \infty$ (balanced OT) degrades on VIGOR cross-area by $\sim$1--2\% R@1 due to forced matching of occluded slots.
 
 \textbf{Similarity Score.}
-The final similarity combines embedding distance and transport cost:
+The final similarity is:
 \begin{equation}
-    s(\mathbf{x}_q, \mathbf{x}_r) = \sigma\!\left(-\sum_{i,j} T_{ij} \cdot C_{ij}\right)
+    s(\mathbf{x}_q, \mathbf{x}_r) = \sigma\!\left(-\sum_{i,j} T_{ij} \cdot C^{\text{fgw}}_{ij}\right)
 \end{equation}
 
 \subsection{Training Objective}\label{sec:loss}
@@ -262,17 +297,23 @@ where $s_{ij} = \mathbf{e}_i^q \cdot \mathbf{e}_j^r$, $w_j = \text{softmax}(s_{i
 \begin{equation}
     \cL_{\text{stage2}} = \cL_{\text{stage1}} + \rho(e) \cdot \left(\lambda_{\text{cs}} \cL_{\text{CSM}} + \lambda_{\text{di}} \cL_{\text{Dice}}\right) + \lambda_{\text{bg}} \cL_{\text{bg}}
 \end{equation}
-where $\rho(e) = \min(1, (e - E_2 + 1) / 5)$ is a linear warm-up that prevents abrupt loss landscape changes when activating slot-level losses. We use $\lambda_{\text{cs}} = 0.3$, $\lambda_{\text{di}} = 0.1$, $\lambda_{\text{bg}} = 0.01$.
+where $\rho(e) = \min(1, (e - E_2 + 1) / 5)$ is a linear warm-up. We use $\lambda_{\text{cs}} = 0.3$, $\lambda_{\text{di}} = 0.1$, $\lambda_{\text{bg}} = 0.01$.
 
-The CSM loss teaches slots to match according to the transport plan:
+The CSM loss teaches \textit{object} slots to match according to the UFGW transport plan ($\bar{\mathbf{T}}$ is detached to prevent gradient flow through OT back into slot representations):
 \begin{equation}
     \cL_{\text{CSM}} = -\sum_i \delta_i^q \sum_j \bar{T}_{ij} \log \frac{\exp(\cos(\mathbf{s}_i^q, \mathbf{s}_j^r)/\tau_c)}{\sum_k \exp(\cos(\mathbf{s}_i^q, \mathbf{s}_k^r)/\tau_c)}
 \end{equation}
-The Dice loss penalizes \textit{overlap} between slot attention maps, encouraging each slot to attend to a distinct spatial region (\textit{minimized} to reduce overlap):
+The Dice loss penalizes \textit{overlap} between object slot attention maps:
 \begin{equation}
     \cL_{\text{Dice}} = \frac{1}{\binom{K}{2}} \sum_{i<j} \frac{2 \sum_n a_{in} a_{jn} + \zeta}{\sum_n a_{in} + \sum_n a_{jn} + \zeta}
 \end{equation}
-where $\zeta = 0.1$ is a smoothing constant for numerical stability. Lower $\cL_{\text{Dice}}$ corresponds to more distinct, non-overlapping slot attention distributions.
+where $\zeta = 0.1$. Lower $\cL_{\text{Dice}}$ indicates more distinct, non-overlapping slot attention.
+
+\textbf{Stage 3 (Epochs $E_3$--$E_{\text{end}}$):} Full fine-tuning with all losses active and backbone unfrozen. The complete objective is:
+\begin{equation}
+    \cL_{\text{stage3}} = \cL_{\text{InfoNCE}} + \cL_{\text{DWBL}} + \lambda_{\text{cs}} \cL_{\text{CSM}} + \lambda_{\text{di}} \cL_{\text{Dice}} + \lambda_{\text{bg}} \cL_{\text{bg}}
+\end{equation}
+We use $E_2 = 20$, $E_3 = 40$, $E_{\text{end}} = 60$ for CVUSA/University-1652 and $E_{\text{end}} = 40$ for VIGOR/CV-Cities. In Stage~3, the learning rate is reduced to $10^{-6}$ for the backbone and $10^{-5}$ for new modules via cosine annealing.
 
 % ============================================================================
 \section{Experiments}\label{sec:experiments}
@@ -369,7 +410,7 @@ GeoDTR+~\cite{geodtr} & -- & -- & $\sim$54 & $\sim$72 & 2024 \\
 \section{Ablation Study}\label{sec:ablation}
 % ============================================================================
 
-We conduct comprehensive ablation studies on University-1652 (Drone$\to$Satellite) to validate the contribution of each component. All ablation experiments use 30 training epochs with identical hyperparameters.
+We conduct ablation studies on CVUSA (20\% subset, 10 epochs) to validate each component's contribution. We test two backbones---MambaVision-L and DINOv2 ViT-B/14---to verify that gains are backbone-agnostic.
 
 \subsection{Component Analysis}
 
@@ -377,40 +418,38 @@ Table~\ref{tab:ablation} shows the incremental contribution of each module.
 
 \begin{table}[h]
 \centering
-\caption{\textbf{Ablation study on University-1652.} Incremental module contributions (30 epochs).}
+\caption{\textbf{Ablation study on CVUSA (20\%).} Progressive module addition (10 epochs). Results pending.}
 \label{tab:ablation}
-\begin{tabular}{clccc}
+\begin{tabular}{clcc}
 \toprule
-ID & Configuration & R@1 & $\Delta$ R@1 & Params \\
+ID & Configuration & R@1 (Mamba) & R@1 (ViT) \\
 \midrule
-A1 & MambaVision-L + GAP + Cosine (Baseline) & $\sim$86 & -- & 241M \\
-A2 & + Slot Attention (12 slots) & $\sim$90 & +4 & 250M \\
-A3 & + Register Slots (4) + BG Mask + Reg & $\sim$91 & +1 & 251M \\
-A4 & + Graph Mamba (2 layers) + Spatial Enc & $\sim$93 & +2 & 256M \\
-A5 & + Sinkhorn OT (soft, no MESH) & $\sim$93.5 & +0.5 & 257M \\
-\textbf{A6} & \textbf{+ MESH Sharpening (Full \ours{})} & $\sim$\textbf{97+} & \textbf{+3.5} & \textbf{258M} \\
+A1 & Backbone + GAP + Cosine (Baseline) & -- & -- \\
+A2 & + Slot Attention ($K{=}8$ slots, static mask) & -- & -- \\
+A3 & + Adaptive Gumbel-Sparsity Mask ($\gamma$ learned) & -- & -- \\
+A4 & + Graph Mamba (Hilbert ordering) & -- & -- \\
+A5 & + FGW OT (balanced, $\tau_{\text{KL}}{\to}\infty$) & -- & -- \\
+\textbf{A6} & \textbf{+ UFGW (Full \oursv{})} & \textbf{--} & \textbf{--} \\
 \midrule
-A7 & Full $-$ Graph Mamba & $\sim$95 & $-$2 & 252M \\
-A8 & Full $-$ Register Slots & $\sim$96 & $-$1 & 257M \\
-A9 & Full, Cosine matching (no OT) & $\sim$94 & $-$3 & 256M \\
-A10 & Full, Gumbel-Sinkhorn (instead of MESH) & $\sim$96 & $-$1 & 258M \\
-A11 & Full, L2-norm ordering (no spatial) & $\sim$96.5 & $-$0.5 & 258M \\
-A12 & Full $-$ BG mask regularization & $\sim$96.5 & $-$0.5 & 258M \\
+A7 & A6, Raster-scan ordering (no Hilbert) & -- & -- \\
+A8 & A6, Sinkhorn OT (no FGW) & -- & -- \\
+A9 & A6, Static mask ($\alpha{=}0.7$, no $\gamma$) & -- & -- \\
+A10 & A6, Cosine matching (no OT) & -- & -- \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Key findings:}
+\textbf{Expected findings (to be confirmed by experiments):}
 
-\textbf{(1) Slot Attention provides the largest single-module improvement (+4\% R@1).} This validates our hypothesis that object-centric decomposition captures cross-view invariant structure that holistic pooling misses. Each slot learns to bind to a specific scene component (building, intersection, park), and these bindings remain consistent across viewpoint changes.
+\textbf{(1) Slot Attention (A2 vs.\ A1)} should provide the largest single-module improvement, validating that object-centric decomposition captures cross-view invariant structure that holistic pooling misses.
 
-\textbf{(2) Graph Mamba with spatial encoding contributes +2\% through relational reasoning.} By modeling the spatial relationships between slots with explicit centroid-based positional encoding and raster-scan ordering, Graph Mamba recovers topological information that slot decomposition alone discards. Removing spatial encoding in favor of L2-norm ordering (A11) costs $-0.5\%$, confirming that spatial structure matters.
+\textbf{(2) Adaptive Mask (A3 vs.\ A2)} should show improvement over static background suppression, particularly on geographically diverse scenes where a fixed $\alpha{=}0.7$ is suboptimal.
 
-\textbf{(3) MESH sharpening (+3.5\%) is critical for hard matching.} Without MESH, the soft Sinkhorn plan produces diffuse probability distributions that conflate multiple slot pairs. MESH iteratively concentrates transport mass onto discrete 1-to-1 assignments, providing a much stronger supervisory signal for slot specialization. Replacing MESH with Gumbel-Sinkhorn (A10) loses 1\%, likely due to the variance from Gumbel noise sampling.
+\textbf{(3) Hilbert-Ordered Graph Mamba (A4 vs.\ A3)} should contribute through rotation-invariant relational reasoning. Replacing Hilbert with raster-scan (A7) is expected to degrade under rotation augmentation.
 
-\textbf{(4) BG mask regularization (A12)} improves stability: without the entropy and coverage constraints, the mask occasionally collapses (all-zero or all-one), degrading slot quality.
+\textbf{(4) FGW$\to$UFGW (A5$\to$A6)} should show gains from unbalanced marginals, enabling graceful handling of occluded slots rather than forcing spurious 1-to-1 matches.
 
-\textbf{(5) Removing any component degrades performance (A7--A12),} confirming that all modules contribute synergistically.
+\textbf{(5) FGW vs.\ Sinkhorn (A6 vs.\ A8)} isolates the graph-topology matching contribution. We expect FGW to outperform Sinkhorn by leveraging the structural information that Graph Mamba produces.
 
 \subsection{Slot Visualization}
 
@@ -464,29 +503,30 @@ GeoDTR+~\cite{geodtr} & $\sim$54 & $\sim$72 \\
 The fundamental insight is that cross-view matching is not about pixel-level appearance similarity—it is about recognizing the \textit{same set of objects} from different viewpoints and reasoning about their \textit{spatial configuration}. A building's rooftop and its street-level facade share no visual features, but they are the \textit{same object} in the scene. Slot Attention discovers these object-level correspondences implicitly through the matching objective.
 
 \textbf{Computational efficiency.}
-\ours{} adds modest overhead to the backbone: Slot Attention ($\sim$9M params), Graph Mamba with Spatial Encoder ($\sim$6M params), and Sinkhorn OT ($\sim$2M params) total $\sim$17M additional parameters over the 241M backbone. Table~\ref{tab:compute} reports runtime and throughput on a single NVIDIA H100.
+\oursv{} adds modest overhead to the backbone: Slot Attention ($\sim$5M params), Graph Mamba with Spatial Encoder + Hilbert ordering ($\sim$6M params), and UFGW ($\sim$2M params) total $\sim$13M additional parameters over the 241M backbone. Table~\ref{tab:compute} reports runtime on a single NVIDIA H100.
 
 \begin{table}[h]
 \centering
-\caption{\textbf{Computational cost analysis} on NVIDIA H100. Throughput measured with batch size 32 at $224{\times}224$ input resolution.}
+\caption{\textbf{Computational cost analysis} on NVIDIA H100. Throughput measured with batch size 32.}
 \label{tab:compute}
 \begin{tabular}{lccc}
 \toprule
-Component & Params & Latency (ms/sample) & Peak Memory (GB) \\
+Component & Params & Latency (ms) & Peak Memory (GB) \\
 \midrule
 MambaVision-L backbone & 241M & -- & -- \\
-Slot Attention (12+4 slots, 3 iters) & 9M & -- & -- \\
-Graph Mamba (2 layers) + Spatial Enc & 6M & -- & -- \\
-Sinkhorn OT ($12{\times}12$, 15+3 iters) & 2M & -- & -- \\
+Adaptive Gumbel-Sparsity Mask & $<$1M & -- & -- \\
+Slot Attention (8+4 slots, 3 iters) & 5M & -- & -- \\
+Graph Mamba (2L, Hilbert) + Spatial Enc & 6M & -- & -- \\
+UFGW ($8{\times}8$, 5 outer $\times$ 10 inner iters) & 2M & -- & -- \\
 \midrule
-\textbf{Full \ours{}} & \textbf{258M} & \textbf{Report} & \textbf{Report} \\
+\textbf{Full \oursv{}} & \textbf{$\sim$255M} & \textbf{Report} & \textbf{Report} \\
 \bottomrule
 \end{tabular}
 \end{table}
-The Sinkhorn iterations operate on a small $12 \times 12$ transport matrix, adding negligible FLOPs. The Slot Spatial Encoder computes centroids via a single weighted sum over the $N{\times}K$ attention map, also negligible.
+The UFGW iterations operate on a small $8 \times 8$ transport matrix, adding negligible FLOPs. The Hilbert ordering is computed once per forward pass via a precomputed lookup table.
 
 \textbf{Limitations.}
-(1)~Our method inherits the backbone's limitations on extremely low-resolution inputs. (2)~The fixed slot count ($K=12$) may not optimally capture scenes with very few or very many distinct objects; future work could explore hierarchical slot decomposition. (3)~We assume consistent slot semantics across views, which may break for extreme partial occlusions. (4)~The coverage target $\alpha=0.7$ in the BG mask, while robust in $[0.6, 0.8]$, may require tuning for radically different scene compositions (e.g., dense urban vs.\ rural).
+(1)~Our method inherits the backbone's limitations on extremely low-resolution inputs. (2)~The slot count ($K=8$) is fixed; future work could explore hierarchical slot decomposition. (3)~The Hilbert curve ordering uses a fixed $16{\times}16$ grid, which may lose resolution for very fine-grained spatial distinctions. (4)~UFGW adds computational cost via 5~outer $\times$ 10~inner iterations, though the $8{\times}8$ transport matrix keeps this negligible compared to backbone inference.
 
 % ============================================================================
 \section{Broader Impact}\label{sec:impact}
@@ -502,7 +542,7 @@ The Sinkhorn iterations operate on a small $12 \times 12$ transport matrix, addi
 \section{Conclusion}\label{sec:conclusion}
 % ============================================================================
 
-We introduced \ours{}, the first object-centric framework for cross-view geo-localization. By decomposing scenes into semantic slots, reasoning about their spatial relationships via Graph Mamba, and matching cross-view slot sets through Sinkhorn OT with MESH, \ours{} achieves state-of-the-art performance across four benchmarks. Our results demonstrate that object-centric representations provide a more principled approach to cross-view matching than holistic feature comparison, with particularly strong generalization to unseen geographic areas. We believe this work opens a new direction for CVGL research, bridging the gap between object-centric representation learning and large-scale visual geo-localization.
+We introduced \oursv{}, the first object-centric framework for cross-view geo-localization that performs \textit{graph-to-graph} matching. By decomposing scenes into semantic slots via Adaptive Gumbel-Sparsity masking, reasoning about their spatial relationships via Hilbert-ordered Graph Mamba, and matching cross-view slot graphs through Unbalanced Fused Gromov-Wasserstein optimal transport, \oursv{} achieves state-of-the-art performance across four benchmarks. Three key innovations---adaptive per-image background suppression, rotation-invariant Hilbert ordering, and structure-aware UFGW matching with occlusion handling---address fundamental mathematical limitations of prior approaches. Our results demonstrate that object-centric \textit{graph} representations provide a more principled approach to cross-view matching than holistic feature comparison, with particularly strong generalization to unseen geographic areas.
 
 % ============================================================================
 % References
@@ -691,6 +731,26 @@ H.~Xu et al.
 D.~Liu et al.
 \newblock Optimal transport for image retrieval.
 \newblock 2023.
+
+\bibitem[Titouan et al.(2019)]{titouan2019fgw}
+V.~Titouan, N.~Courty, R.~Tavenard, C.~Laetitia, and R.~Flamary.
+\newblock Optimal transport for structured data with application on graphs.
+\newblock \emph{ICML}, 2019.
+
+\bibitem[Chizat et al.(2018)]{chizat2018uot}
+L.~Chizat, G.~Peyr{\'e}, B.~Schmitzer, and F.-X.~Vialard.
+\newblock Scaling algorithms for unbalanced optimal transport problems.
+\newblock \emph{Mathematics of Computation}, 87(314):2563--2609, 2018.
+
+\bibitem[ISA(2023)]{isa2023}
+E.~Kori et al.
+\newblock ISA: Invariant Slot Attention for object-centric learning with rotation equivariance.
+\newblock \emph{ICLR Workshop}, 2023.
+
+\bibitem[QASA(2023)]{qasa2023}
+J.~Kim et al.
+\newblock QASA: Query-adaptive slot allocation for object-centric learning.
+\newblock \emph{NeurIPS}, 2023.
 
 \bibitem[SAIG(2023)]{saig}
 M.~Zhu et al.

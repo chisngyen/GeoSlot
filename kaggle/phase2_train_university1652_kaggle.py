@@ -86,7 +86,7 @@ SINKHORN_ITERS = 15
 MESH_ITERS     = 3
 
 # --- Data ---
-IMG_SIZE       = 384   # University-1652 dùng ảnh lớn hơn CVUSA
+IMG_SIZE       = 256   # Original University-1652 baseline uses 256×256
 
 # --- Training ---
 BATCH_SIZE     = 32
@@ -516,23 +516,35 @@ class JointLoss(nn.Module):
 # #############################################################################
 
 class University1652Dataset(Dataset):
-    def __init__(self, root, split="train", img_size=384):
+    def __init__(self, root, split="train", img_size=256, pad=10):
         super().__init__()
         self.split = split
         self.pairs = []
         self.query_imgs = []; self.query_labels = []
         self.gallery_imgs = []; self.gallery_labels = []
 
+        # Eval / test transform (no augmentation)
         self.tf = transforms.Compose([
-            transforms.Resize((img_size, img_size)),
+            transforms.Resize((img_size, img_size), interpolation=3),
             transforms.ToTensor(),
             transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225]),
         ])
-        self.tf_aug = transforms.Compose([
-            transforms.Resize((int(img_size*1.1), int(img_size*1.1))),
+        # Satellite train augmentation (original: RandomAffine(90) for rotation)
+        self.tf_sat = transforms.Compose([
+            transforms.Resize((img_size, img_size), interpolation=3),
+            transforms.Pad(pad, padding_mode='edge'),
+            transforms.RandomAffine(90),
             transforms.RandomCrop((img_size, img_size)),
             transforms.RandomHorizontalFlip(),
-            transforms.ColorJitter(0.2, 0.15, 0.1),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225]),
+        ])
+        # Drone / street train augmentation (original: Pad + RandomCrop)
+        self.tf_drone = transforms.Compose([
+            transforms.Resize((img_size, img_size), interpolation=3),
+            transforms.Pad(pad, padding_mode='edge'),
+            transforms.RandomCrop((img_size, img_size)),
+            transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225]),
         ])
@@ -621,7 +633,7 @@ class University1652Dataset(Dataset):
                 s = Image.open(sp).convert("RGB")
             except:
                 d = s = Image.new("RGB", (IMG_SIZE, IMG_SIZE), (128,128,128))
-            return {"query": self.tf_aug(d), "gallery": self.tf(s), "class_id": cls}
+            return {"query": self.tf_drone(d), "gallery": self.tf_sat(s), "class_id": cls}
         else:
             try: img = Image.open(self.query_imgs[idx]).convert("RGB")
             except: img = Image.new("RGB", (IMG_SIZE, IMG_SIZE), (128,128,128))
