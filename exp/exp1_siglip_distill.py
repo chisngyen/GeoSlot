@@ -45,6 +45,15 @@ from datetime import datetime
 
 import numpy as np
 import torch
+
+# === PATCHED: import shared eval_utils for per-altitude evaluation ===
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)) if '__file__' in dir() else '.')
+try:
+    from eval_utils import evaluate_full, print_paper_results
+    HAS_EVAL_UTILS = True
+except ImportError:
+    HAS_EVAL_UTILS = False
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
@@ -951,6 +960,27 @@ def main():
     print(f"  Results saved to {OUTPUT_DIR}/exp1_results.json")
     print("="*70)
 
+
+
+def run_final_evaluation(model, test_dataset, device, exp_name, cfg=Config):
+    """Run comprehensive per-altitude evaluation with paper-grade output."""
+    if HAS_EVAL_UTILS:
+        results = evaluate_full(
+            model, test_dataset, device,
+            data_root=cfg.DATA_ROOT,
+            batch_size=cfg.BATCH_SIZE,
+            num_workers=cfg.NUM_WORKERS,
+            img_size=cfg.IMG_SIZE,
+            train_locs=cfg.TRAIN_LOCS,
+            test_locs=cfg.TEST_LOCS,
+        )
+        print_paper_results(results, exp_name=exp_name)
+        return results
+    else:
+        print("eval_utils not found, using basic evaluate()")
+        r, ap = evaluate(model, test_dataset, device)
+        print(f"R@1:{r['R@1']:.2f}% R@5:{r['R@5']:.2f}% R@10:{r['R@10']:.2f}% mAP:{ap:.2f}%")
+        return {'overall': {**r, 'mAP': ap}}
 
 if __name__ == "__main__":
     main()
