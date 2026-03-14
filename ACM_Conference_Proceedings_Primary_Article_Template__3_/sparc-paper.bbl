@@ -1,0 +1,339 @@
+%%% -*-BibTeX-*-
+%%% Do NOT edit. File created by BibTeX with style
+%%% ACM-Reference-Format-Journals [18-Jan-2012].
+
+\begin{thebibliography}{26}
+
+%%% ====================================================================
+%%% NOTE TO THE USER: you can override these defaults by providing
+%%% customized versions of any of these macros before the \bibliography
+%%% command.  Each of them MUST provide its own final punctuation,
+%%% except for \shownote{} and \showURL{}.  The latter two
+%%% do not use final punctuation, in order to avoid confusing it with
+%%% the Web address.
+%%%
+%%% To suppress output of a particular field, define its macro to expand
+%%% to an empty string, or better, \unskip, like this:
+%%%
+%%% \newcommand{\showURL}[1]{\unskip}   % LaTeX syntax
+%%%
+%%% \def \showURL #1{\unskip}           % plain TeX syntax
+%%%
+%%% ====================================================================
+
+\ifx \showCODEN    \undefined \def \showCODEN     #1{\unskip}     \fi
+\ifx \showISBNx    \undefined \def \showISBNx     #1{\unskip}     \fi
+\ifx \showISBNxiii \undefined \def \showISBNxiii  #1{\unskip}     \fi
+\ifx \showISSN     \undefined \def \showISSN      #1{\unskip}     \fi
+\ifx \showLCCN     \undefined \def \showLCCN      #1{\unskip}     \fi
+\ifx \shownote     \undefined \def \shownote      #1{#1}          \fi
+\ifx \showarticletitle \undefined \def \showarticletitle #1{#1}   \fi
+\ifx \showURL      \undefined \def \showURL       {\relax}        \fi
+% The following commands are used for tagged output and should be
+% invisible to TeX
+\providecommand\bibfield[2]{#2}
+\providecommand\bibinfo[2]{#2}
+\providecommand\natexlab[1]{#1}
+\providecommand\showeprint[2][]{arXiv:#2}
+
+\bibitem[Caron et~al\mbox{.}(2021)]%
+        {caron2021dino}
+\bibfield{author}{\bibinfo{person}{Mathilde Caron}, \bibinfo{person}{Hugo
+  Touvron}, \bibinfo{person}{Ishan Misra}, \bibinfo{person}{Herv{\'e}
+  J{\'e}gou}, \bibinfo{person}{Julien Mairal}, \bibinfo{person}{Piotr
+  Bojanowski}, {and} \bibinfo{person}{Armand Joulin}.}
+  \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{Emerging Properties in Self-Supervised Vision
+  Transformers}. In \bibinfo{booktitle}{\emph{Proceedings of the IEEE/CVF
+  International Conference on Computer Vision}}. \bibinfo{pages}{9650--9660}.
+\newblock
+
+
+\bibitem[Chen et~al\mbox{.}(2026)]%
+        {chen2026singeo}
+\bibfield{author}{\bibinfo{person}{Zijun Chen}, \bibinfo{person}{Yuwei Li},
+  {and} \bibinfo{person}{Haoran Wang}.} \bibinfo{year}{2026}\natexlab{}.
+\newblock \showarticletitle{{SinGeo}: Curriculum Learning with Dual
+  Discriminative Learning for Cross-View Geo-Localization}.
+\newblock \bibinfo{journal}{\emph{arXiv preprint arXiv:2603.09377}}
+  (\bibinfo{year}{2026}).
+\newblock
+
+
+\bibitem[Dai et~al\mbox{.}(2022)]%
+        {dai2021fsra}
+\bibfield{author}{\bibinfo{person}{Ming Dai}, \bibinfo{person}{Jianhong Hu},
+  \bibinfo{person}{Jiedong Zhuang}, {and} \bibinfo{person}{Enhui Zheng}.}
+  \bibinfo{year}{2022}\natexlab{}.
+\newblock \showarticletitle{Transformer Meets Convolution: A Bilateral
+  Awareness Network for Semantic Segmentation}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the AAAI Conference on Artificial
+  Intelligence}}.
+\newblock
+
+
+\bibitem[Deuser et~al\mbox{.}(2023)]%
+        {deuser2023sample4geo}
+\bibfield{author}{\bibinfo{person}{Fabian Deuser}, \bibinfo{person}{Konrad
+  Habel}, {and} \bibinfo{person}{Norbert Oswald}.}
+  \bibinfo{year}{2023}\natexlab{}.
+\newblock \showarticletitle{{Sample4Geo}: Hard Negative Sampling For Cross-View
+  Geo-Localisation}. In \bibinfo{booktitle}{\emph{Proceedings of the IEEE/CVF
+  International Conference on Computer Vision}}. \bibinfo{pages}{16847--16856}.
+\newblock
+
+
+\bibitem[Gou et~al\mbox{.}(2021)]%
+        {gou2021knowledge}
+\bibfield{author}{\bibinfo{person}{Jianping Gou}, \bibinfo{person}{Baosheng
+  Yu}, \bibinfo{person}{Stephen~J. Maybank}, {and} \bibinfo{person}{Dacheng
+  Tao}.} \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{Knowledge Distillation: A Survey}. In
+  \bibinfo{booktitle}{\emph{International Journal of Computer Vision}},
+  Vol.~\bibinfo{volume}{129}. \bibinfo{pages}{1789--1819}.
+\newblock
+
+
+\bibitem[He et~al\mbox{.}(2022)]%
+        {he2022mae}
+\bibfield{author}{\bibinfo{person}{Kaiming He}, \bibinfo{person}{Xinlei Chen},
+  \bibinfo{person}{Saining Xie}, \bibinfo{person}{Yanghao Li},
+  \bibinfo{person}{Piotr Doll{\'a}r}, {and} \bibinfo{person}{Ross Girshick}.}
+  \bibinfo{year}{2022}\natexlab{}.
+\newblock \showarticletitle{Masked Autoencoders Are Scalable Vision Learners}.
+  In \bibinfo{booktitle}{\emph{Proceedings of the IEEE/CVF Conference on
+  Computer Vision and Pattern Recognition}}. \bibinfo{pages}{16000--16009}.
+\newblock
+
+
+\bibitem[Hinton et~al\mbox{.}(2015)]%
+        {hinton2015distilling}
+\bibfield{author}{\bibinfo{person}{Geoffrey Hinton}, \bibinfo{person}{Oriol
+  Vinyals}, {and} \bibinfo{person}{Jeff Dean}.}
+  \bibinfo{year}{2015}\natexlab{}.
+\newblock \showarticletitle{Distilling the Knowledge in a Neural Network}. In
+  \bibinfo{booktitle}{\emph{NIPS Workshop on Deep Learning}}.
+\newblock
+
+
+\bibitem[Kim et~al\mbox{.}(2020)]%
+        {kim2020proxy}
+\bibfield{author}{\bibinfo{person}{Sungyeon Kim}, \bibinfo{person}{Dongwon
+  Kim}, \bibinfo{person}{Minsu Cho}, {and} \bibinfo{person}{Suha Kwak}.}
+  \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Proxy Anchor Loss for Deep Metric Learning}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the IEEE/CVF Conference on Computer
+  Vision and Pattern Recognition}}. \bibinfo{pages}{3238--3247}.
+\newblock
+
+
+\bibitem[Lin et~al\mbox{.}(2022)]%
+        {lin2022dwdr}
+\bibfield{author}{\bibinfo{person}{Jinliang Lin}, \bibinfo{person}{Zhedong
+  Zheng}, \bibinfo{person}{Zhun Zhong}, \bibinfo{person}{Zhiming Luo},
+  \bibinfo{person}{Shaozi Li}, \bibinfo{person}{Yi Yang}, {and}
+  \bibinfo{person}{Nicu Sebe}.} \bibinfo{year}{2022}\natexlab{}.
+\newblock \showarticletitle{Joint Representation Learning and Keypoint
+  Detection for Cross-view Geo-localization}.
+\newblock \bibinfo{journal}{\emph{IEEE Transactions on Image Processing}}
+  \bibinfo{volume}{31} (\bibinfo{year}{2022}), \bibinfo{pages}{3780--3792}.
+\newblock
+
+
+\bibitem[Locatello et~al\mbox{.}(2020)]%
+        {locatello2020slot}
+\bibfield{author}{\bibinfo{person}{Francesco Locatello}, \bibinfo{person}{Dirk
+  Weissenborn}, \bibinfo{person}{Thomas Unterthiner}, \bibinfo{person}{Aravindh
+  Mahendran}, \bibinfo{person}{Georg Heigold}, \bibinfo{person}{Jakob Borg},
+  \bibinfo{person}{Klaus Greff}, {and} \bibinfo{person}{Thomas Kipf}.}
+  \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Object-Centric Learning with Slot Attention}. In
+  \bibinfo{booktitle}{\emph{Advances in Neural Information Processing
+  Systems}}.
+\newblock
+
+
+\bibitem[Loshchilov and Hutter(2019)]%
+        {loshchilov2019adamw}
+\bibfield{author}{\bibinfo{person}{Ilya Loshchilov} {and}
+  \bibinfo{person}{Frank Hutter}.} \bibinfo{year}{2019}\natexlab{}.
+\newblock \showarticletitle{Decoupled Weight Decay Regularization}. In
+  \bibinfo{booktitle}{\emph{International Conference on Learning
+  Representations}}.
+\newblock
+
+
+\bibitem[Oquab et~al\mbox{.}(2024)]%
+        {oquab2024dinov2}
+\bibfield{author}{\bibinfo{person}{Maxime Oquab}, \bibinfo{person}{Timoth{\'e}e
+  Darcet}, \bibinfo{person}{Th{\'e}o Moutakanni}, \bibinfo{person}{Huy Vo},
+  \bibinfo{person}{Marc Szafraniec}, \bibinfo{person}{Vasil Khalidov},
+  \bibinfo{person}{Pierre Fernandez}, \bibinfo{person}{Daniel Haziza},
+  \bibinfo{person}{Francisco Massa}, \bibinfo{person}{Alaaeldin El-Nouby},
+  {et~al\mbox{.}}} \bibinfo{year}{2024}\natexlab{}.
+\newblock \showarticletitle{{DINOv2}: Learning Robust Visual Features without
+  Supervision}. In \bibinfo{booktitle}{\emph{Transactions on Machine Learning
+  Research}}.
+\newblock
+
+
+\bibitem[Perez et~al\mbox{.}(2018)]%
+        {perez2018film}
+\bibfield{author}{\bibinfo{person}{Ethan Perez}, \bibinfo{person}{Florian
+  Strub}, \bibinfo{person}{Harm de Vries}, \bibinfo{person}{Vincent Dumoulin},
+  {and} \bibinfo{person}{Aaron Courville}.} \bibinfo{year}{2018}\natexlab{}.
+\newblock \showarticletitle{{FiLM}: Visual Reasoning with a General
+  Conditioning Layer}. In \bibinfo{booktitle}{\emph{Proceedings of the AAAI
+  Conference on Artificial Intelligence}}.
+\newblock
+
+
+\bibitem[Sun et~al\mbox{.}(2018)]%
+        {sun2018beyond}
+\bibfield{author}{\bibinfo{person}{Yifan Sun}, \bibinfo{person}{Liang Zheng},
+  \bibinfo{person}{Yi Yang}, \bibinfo{person}{Qi Tian}, {and}
+  \bibinfo{person}{Shengjin Wang}.} \bibinfo{year}{2018}\natexlab{}.
+\newblock \showarticletitle{Beyond Part Models: Person Retrieval with Refined
+  Part Pooling (and A Strong Convolutional Baseline)}.
+\newblock \bibinfo{journal}{\emph{European Conference on Computer Vision}}
+  (\bibinfo{year}{2018}).
+\newblock
+
+
+\bibitem[Tarvainen and Valpola(2017)]%
+        {tarvainen2017ema}
+\bibfield{author}{\bibinfo{person}{Antti Tarvainen} {and}
+  \bibinfo{person}{Harri Valpola}.} \bibinfo{year}{2017}\natexlab{}.
+\newblock \showarticletitle{Mean Teachers Are Better Role Models:
+  Weight-averaged Consistency Targets Improve Semi-supervised Learning
+  Results}. In \bibinfo{booktitle}{\emph{Advances in Neural Information
+  Processing Systems}}.
+\newblock
+
+
+\bibitem[Tian et~al\mbox{.}(2024)]%
+        {tian2024mccg}
+\bibfield{author}{\bibinfo{person}{Xingyu Tian}, \bibinfo{person}{Jian Shao},
+  {and} \bibinfo{person}{Runzhe Zhu}.} \bibinfo{year}{2024}\natexlab{}.
+\newblock \showarticletitle{{MCCG}: A ConvNeXt-based Multiple-classifier Method
+  for Cross-view Geo-localization}.
+\newblock \bibinfo{journal}{\emph{Pattern Recognition}} (\bibinfo{year}{2024}).
+\newblock
+
+
+\bibitem[van~den Oord et~al\mbox{.}(2018)]%
+        {oord2018infonce}
+\bibfield{author}{\bibinfo{person}{A{\"a}ron van~den Oord},
+  \bibinfo{person}{Yazhe Li}, {and} \bibinfo{person}{Oriol Vinyals}.}
+  \bibinfo{year}{2018}\natexlab{}.
+\newblock \showarticletitle{Representation Learning with Contrastive Predictive
+  Coding}. In \bibinfo{booktitle}{\emph{Advances in Neural Information
+  Processing Systems}}.
+\newblock
+
+
+\bibitem[Wang et~al\mbox{.}(2021)]%
+        {wang2021tent}
+\bibfield{author}{\bibinfo{person}{Dequan Wang}, \bibinfo{person}{Evan
+  Shelhamer}, \bibinfo{person}{Shaoteng Liu}, \bibinfo{person}{Bruno
+  Olshausen}, {and} \bibinfo{person}{Trevor Darrell}.}
+  \bibinfo{year}{2021}\natexlab{}.
+\newblock \showarticletitle{Tent: Fully Test-Time Adaptation by Entropy
+  Minimization}. In \bibinfo{booktitle}{\emph{International Conference on
+  Learning Representations}}.
+\newblock
+
+
+\bibitem[Wang et~al\mbox{.}(2025a)]%
+        {wang2025cvd}
+\bibfield{author}{\bibinfo{person}{Haoran Wang}, \bibinfo{person}{Jiaxin Liu},
+  {and} \bibinfo{person}{Zhiyong Li}.} \bibinfo{year}{2025}\natexlab{a}.
+\newblock \showarticletitle{Content-Viewpoint Disentanglement for Cross-View
+  Geo-Localization}.
+\newblock \bibinfo{journal}{\emph{arXiv preprint arXiv:2505.11822}}
+  (\bibinfo{year}{2025}).
+\newblock
+
+
+\bibitem[Wang et~al\mbox{.}(2023)]%
+        {wang2023segcn}
+\bibfield{author}{\bibinfo{person}{Jiangtao Wang}, \bibinfo{person}{Runzhe
+  Zhu}, {and} \bibinfo{person}{Mingze Yang}.} \bibinfo{year}{2023}\natexlab{}.
+\newblock \showarticletitle{{SeGCN}: Semantic-Guided Cross-View
+  Geo-Localization via Graph Convolution}.
+\newblock \bibinfo{journal}{\emph{IEEE Signal Processing Letters}}
+  (\bibinfo{year}{2023}).
+\newblock
+
+
+\bibitem[Wang et~al\mbox{.}(2025b)]%
+        {wang2025mcfa}
+\bibfield{author}{\bibinfo{person}{Jiangtao Wang}, \bibinfo{person}{Runzhe
+  Zhu}, {and} \bibinfo{person}{Mingze Yang}.} \bibinfo{year}{2025}\natexlab{b}.
+\newblock \showarticletitle{{MCFA}: Multi-scale Contextual Feature Aggregation
+  for Cross-view Geo-localization}.
+\newblock \bibinfo{journal}{\emph{Pattern Recognition}} (\bibinfo{year}{2025}).
+\newblock
+
+
+\bibitem[Wang et~al\mbox{.}(2022)]%
+        {wang2022lpn}
+\bibfield{author}{\bibinfo{person}{Tingyu Wang}, \bibinfo{person}{Zhedong
+  Zheng}, \bibinfo{person}{Chenggang Yan}, \bibinfo{person}{Jiyong Zhang},
+  \bibinfo{person}{Yaoqi Sun}, \bibinfo{person}{Bolun Zheng}, {and}
+  \bibinfo{person}{Yi Yang}.} \bibinfo{year}{2022}\natexlab{}.
+\newblock \showarticletitle{Each Part Matters: Local Patterns Facilitate
+  Cross-view Geo-localization}.
+\newblock \bibinfo{journal}{\emph{IEEE Transactions on Circuits and Systems for
+  Video Technology}} \bibinfo{volume}{32}, \bibinfo{number}{2}
+  (\bibinfo{year}{2022}), \bibinfo{pages}{867--879}.
+\newblock
+
+
+\bibitem[Yang et~al\mbox{.}(2024)]%
+        {yang2024camp}
+\bibfield{author}{\bibinfo{person}{Mingze Yang}, \bibinfo{person}{Runzhe Zhu},
+  {and} \bibinfo{person}{Ling Yin}.} \bibinfo{year}{2024}\natexlab{}.
+\newblock \showarticletitle{{CAMP}: A Cross-View Geo-Localization Method Using
+  Contrastive Attributes Mining and Position-aware Partitioning}.
+\newblock \bibinfo{journal}{\emph{IEEE Transactions on Circuits and Systems for
+  Video Technology}} (\bibinfo{year}{2024}).
+\newblock
+
+
+\bibitem[Zhang et~al\mbox{.}(2025)]%
+        {zhang2025glqinet}
+\bibfield{author}{\bibinfo{person}{Haoxuan Zhang}, \bibinfo{person}{Runzhe
+  Zhu}, {and} \bibinfo{person}{Mingze Yang}.} \bibinfo{year}{2025}\natexlab{}.
+\newblock \showarticletitle{{GLQINet}: Global-Local Quadrant Interaction
+  Network for Cross-View Geo-Localization}.
+\newblock \bibinfo{journal}{\emph{Scientific Reports}}  \bibinfo{volume}{15}
+  (\bibinfo{year}{2025}).
+\newblock
+
+
+\bibitem[Zheng et~al\mbox{.}(2020)]%
+        {zheng2020university1652}
+\bibfield{author}{\bibinfo{person}{Zhedong Zheng}, \bibinfo{person}{Yunchao
+  Wei}, {and} \bibinfo{person}{Yi Yang}.} \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{University-1652: A Multi-view Multi-source
+  Benchmark for Drone-based Geo-localization}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 28th ACM International
+  Conference on Multimedia}}. \bibinfo{pages}{1395--1403}.
+\newblock
+
+
+\bibitem[Zhu et~al\mbox{.}(2023)]%
+        {zhu2023sues200}
+\bibfield{author}{\bibinfo{person}{Runzhe Zhu}, \bibinfo{person}{Mingze Yang},
+  \bibinfo{person}{Ling Yin}, \bibinfo{person}{Fei Wu}, {and}
+  \bibinfo{person}{Yuncheng Yang}.} \bibinfo{year}{2023}\natexlab{}.
+\newblock \showarticletitle{{SUES-200}: A Multi-height Multi-scene Cross-view
+  Image Benchmark Across Drone and Satellite}.
+\newblock \bibinfo{journal}{\emph{IEEE Transactions on Circuits and Systems for
+  Video Technology}} \bibinfo{volume}{33}, \bibinfo{number}{9}
+  (\bibinfo{year}{2023}), \bibinfo{pages}{4825--4839}.
+\newblock
+
+
+\end{thebibliography}

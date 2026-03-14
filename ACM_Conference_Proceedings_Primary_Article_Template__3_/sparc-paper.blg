@@ -1,0 +1,112 @@
+This is BibTeX, Version 0.99e
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: sparc-paper.aux
+Reallocating 'name_of_file' (item size: 1) to 21 items.
+The style file: ACM-Reference-Format.bst
+Reallocating 'name_of_file' (item size: 1) to 11 items.
+Reallocating 'singl_function' (item size: 4) to 100 items.
+Reallocating 'singl_function' (item size: 4) to 100 items.
+Reallocating 'wiz_functions' (item size: 4) to 6000 items.
+Database file #1: sparc-refs.bib
+Reallocating 'singl_function' (item size: 4) to 100 items.
+Reallocating 'wiz_functions' (item size: 4) to 9000 items.
+Reallocating 'glb_str_end' (item size: 4) to 20 items.
+Reallocating 'glb_str_ptr' (item size: 4) to 20 items.
+Reallocating 'global_strs' (item size: 1) to 4000000 items.
+Reallocating 'singl_function' (item size: 4) to 100 items.
+Warning--empty publisher in caron2021dino
+Warning--empty address in caron2021dino
+Warning--no number and no volume in chen2026singeo
+Warning--page numbers missing in both pages and numpages fields in chen2026singeo
+Warning--empty publisher in dai2021fsra
+Warning--empty address in dai2021fsra
+Warning--page numbers missing in both pages and numpages fields in dai2021fsra
+Warning--empty publisher in deuser2023sample4geo
+Warning--empty address in deuser2023sample4geo
+Warning--empty publisher in gou2021knowledge
+Warning--empty address in gou2021knowledge
+Warning--empty publisher in he2022mae
+Warning--empty address in he2022mae
+Warning--empty publisher in hinton2015distilling
+Warning--empty address in hinton2015distilling
+Warning--page numbers missing in both pages and numpages fields in hinton2015distilling
+Warning--empty publisher in kim2020proxy
+Warning--empty address in kim2020proxy
+Warning--empty publisher in locatello2020slot
+Warning--empty address in locatello2020slot
+Warning--page numbers missing in both pages and numpages fields in locatello2020slot
+Warning--empty publisher in loshchilov2019adamw
+Warning--empty address in loshchilov2019adamw
+Warning--page numbers missing in both pages and numpages fields in loshchilov2019adamw
+Warning--empty publisher in oquab2024dinov2
+Warning--empty address in oquab2024dinov2
+Warning--page numbers missing in both pages and numpages fields in oquab2024dinov2
+Warning--empty publisher in perez2018film
+Warning--empty address in perez2018film
+Warning--page numbers missing in both pages and numpages fields in perez2018film
+Warning--no number and no volume in sun2018beyond
+Warning--page numbers missing in both pages and numpages fields in sun2018beyond
+Warning--empty publisher in tarvainen2017ema
+Warning--empty address in tarvainen2017ema
+Warning--page numbers missing in both pages and numpages fields in tarvainen2017ema
+Warning--no number and no volume in tian2024mccg
+Warning--page numbers missing in both pages and numpages fields in tian2024mccg
+Warning--empty publisher in oord2018infonce
+Warning--empty address in oord2018infonce
+Warning--page numbers missing in both pages and numpages fields in oord2018infonce
+Warning--empty publisher in wang2021tent
+Warning--empty address in wang2021tent
+Warning--page numbers missing in both pages and numpages fields in wang2021tent
+Warning--no number and no volume in wang2025cvd
+Warning--page numbers missing in both pages and numpages fields in wang2025cvd
+Warning--no number and no volume in wang2023segcn
+Warning--page numbers missing in both pages and numpages fields in wang2023segcn
+Warning--no number and no volume in wang2025mcfa
+Warning--page numbers missing in both pages and numpages fields in wang2025mcfa
+Warning--no number and no volume in yang2024camp
+Warning--page numbers missing in both pages and numpages fields in yang2024camp
+Warning--page numbers missing in both pages and numpages fields in zhang2025glqinet
+Warning--empty publisher in zheng2020university1652
+Warning--empty address in zheng2020university1652
+You've used 26 entries,
+            6273 wiz_defined-function locations,
+            1635 strings with 23138 characters,
+and the built_in function-call counts, 30329 in all, are:
+= -- 3695
+> -- 1117
+< -- 0
++ -- 380
+- -- 361
+* -- 2225
+:= -- 2886
+add.period$ -- 121
+call.type$ -- 26
+change.case$ -- 218
+chr.to.int$ -- 25
+cite$ -- 80
+duplicate$ -- 2711
+empty$ -- 1915
+format.name$ -- 464
+if$ -- 7502
+int.to.chr$ -- 3
+int.to.str$ -- 1
+missing$ -- 119
+newline$ -- 232
+num.names$ -- 181
+pop$ -- 1293
+preamble$ -- 1
+purify$ -- 424
+quote$ -- 0
+skip$ -- 933
+stack$ -- 0
+substring$ -- 1914
+swap$ -- 211
+text.length$ -- 0
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 623
+warning$ -- 54
+while$ -- 113
+width$ -- 0
+write$ -- 501
+(There were 54 warnings)

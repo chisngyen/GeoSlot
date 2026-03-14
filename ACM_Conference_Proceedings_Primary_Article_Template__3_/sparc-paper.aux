@@ -1,0 +1,167 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces \textsc  {Sparc}{} decomposes drone and satellite images into semantic parts whose structural relationships persist across the extreme viewpoint gap. A shared DINOv2 ViT-S/14 backbone feeds into a CLS-based global branch and a part discovery branch with $K{=}8$ learnable prototypes, merged by a dynamic fusion gate. With only 22\,M parameters, \textsc  {Sparc}{} sets a new state of the art on SUES-200 (96.45\% R@1) and University-1652 (94.87\% R@1).}}{1}{figure.caption.1}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:teaser}{{1}{1}{\ours {} decomposes drone and satellite images into semantic parts whose structural relationships persist across the extreme viewpoint gap. A shared DINOv2 ViT-S/14 backbone feeds into a CLS-based global branch and a part discovery branch with $K{=}8$ learnable prototypes, merged by a dynamic fusion gate. With only 22\,M parameters, \ours {} sets a new state of the art on SUES-200 (96.45\% R@1) and University-1652 (94.87\% R@1)}{figure.caption.1}{}}
+\@writefile{toc}{\contentsline {section}{Abstract}{1}{section*.2}\protected@file@percent }
+\citation{deuser2023sample4geo,yang2024camp,wang2025mcfa}
+\citation{wang2023segcn,lin2022dwdr}
+\citation{perez2018film}
+\citation{he2022mae}
+\citation{tarvainen2017ema}
+\citation{kim2020proxy}
+\citation{wang2022lpn}
+\citation{dai2021fsra}
+\citation{deuser2023sample4geo}
+\citation{tian2024mccg}
+\citation{yang2024camp}
+\citation{wang2025mcfa}
+\citation{zhang2025glqinet}
+\citation{wang2023segcn}
+\citation{wang2025cvd}
+\citation{chen2026singeo}
+\citation{hinton2015distilling}
+\citation{gou2021knowledge}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{2}{section.1}\protected@file@percent }
+\newlabel{sec:intro}{{1}{2}{Introduction}{section.1}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {2}Related Work}{2}{section.2}\protected@file@percent }
+\newlabel{sec:related}{{2}{2}{Related Work}{section.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{Cross-view geo-localization.}{2}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Knowledge distillation in vision.}{2}{section*.7}\protected@file@percent }
+\citation{sun2018beyond}
+\citation{locatello2020slot}
+\citation{oquab2024dinov2}
+\citation{caron2021dino}
+\citation{he2022mae}
+\citation{perez2018film}
+\@writefile{toc}{\contentsline {paragraph}{Part-based and structured representations.}{3}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Self-supervised pretext tasks for retrieval.}{3}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Method}{3}{section.3}\protected@file@percent }
+\newlabel{sec:method}{{3}{3}{Method}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Problem Formulation}{3}{subsection.3.1}\protected@file@percent }
+\newlabel{sec:problem}{{3.1}{3}{Problem Formulation}{subsection.3.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Architecture Overview}{3}{subsection.3.2}\protected@file@percent }
+\newlabel{sec:overview}{{3.2}{3}{Architecture Overview}{subsection.3.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Semantic Part Discovery}{3}{subsection.3.3}\protected@file@percent }
+\newlabel{sec:parts}{{3.3}{3}{Semantic Part Discovery}{subsection.3.3}{}}
+\newlabel{eq:assignment}{{1}{3}{Semantic Part Discovery}{equation.1}{}}
+\@writefile{toc}{\contentsline {paragraph}{Part-aware pooling.}{3}{section*.10}\protected@file@percent }
+\newlabel{eq:partpool}{{2}{3}{Part-aware pooling}{equation.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Dynamic Fusion Gate}{3}{subsection.3.4}\protected@file@percent }
+\newlabel{sec:fusion}{{3.4}{3}{Dynamic Fusion Gate}{subsection.3.4}{}}
+\newlabel{eq:fusion}{{3}{3}{Dynamic Fusion Gate}{equation.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Altitude-Aware Feature Modulation}{3}{subsection.3.5}\protected@file@percent }
+\newlabel{sec:altitude}{{3.5}{3}{Altitude-Aware Feature Modulation}{subsection.3.5}{}}
+\citation{he2022mae}
+\citation{tarvainen2017ema}
+\citation{kim2020proxy}
+\citation{kim2020proxy}
+\citation{kim2020proxy}
+\citation{oord2018infonce}
+\citation{zhu2023sues200}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.6}Masked Part Reconstruction}{4}{subsection.3.6}\protected@file@percent }
+\newlabel{sec:mar}{{3.6}{4}{Masked Part Reconstruction}{subsection.3.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.7}Multi-Level Distillation}{4}{subsection.3.7}\protected@file@percent }
+\newlabel{sec:distill}{{3.7}{4}{Multi-Level Distillation}{subsection.3.7}{}}
+\newlabel{eq:crossdistill}{{4}{4}{Multi-Level Distillation}{equation.4}{}}
+\newlabel{eq:selfdistill}{{5}{4}{Multi-Level Distillation}{equation.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.8}Proxy-Based Metric Learning}{4}{subsection.3.8}\protected@file@percent }
+\newlabel{sec:proxy}{{3.8}{4}{Proxy-Based Metric Learning}{subsection.3.8}{}}
+\newlabel{eq:proxy}{{6}{4}{Proxy-Based Metric Learning}{equation.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.9}Training Objective}{4}{subsection.3.9}\protected@file@percent }
+\newlabel{sec:objective}{{3.9}{4}{Training Objective}{subsection.3.9}{}}
+\newlabel{eq:total}{{7}{4}{Training Objective}{equation.7}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Experiments}{4}{section.4}\protected@file@percent }
+\newlabel{sec:exp}{{4}{4}{Experiments}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Datasets and Evaluation Protocol}{4}{subsection.4.1}\protected@file@percent }
+\newlabel{sec:datasets}{{4.1}{4}{Datasets and Evaluation Protocol}{subsection.4.1}{}}
+\citation{zheng2020university1652}
+\citation{loshchilov2019adamw}
+\citation{wang2025mcfa}
+\citation{yang2024camp}
+\citation{wang2025mcfa}
+\citation{yang2024camp}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Implementation Details}{5}{subsection.4.2}\protected@file@percent }
+\newlabel{sec:impl}{{4.2}{5}{Implementation Details}{subsection.4.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Comparison with State of the Art}{5}{subsection.4.3}\protected@file@percent }
+\newlabel{sec:sota}{{4.3}{5}{Comparison with State of the Art}{subsection.4.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{SUES-200 results.}{5}{section*.11}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces SUES-200 drone$\to $satellite R@1 (\%) by altitude. Best in \textbf  {bold}. \textsc  {Sparc}{} achieves the highest accuracy at every altitude with the fewest parameters.}}{5}{table.caption.12}\protected@file@percent }
+\newlabel{tab:sues200_d2s}{{1}{5}{SUES-200 drone$\to $satellite R@1 (\%) by altitude. Best in \textbf {bold}. \ours {} achieves the highest accuracy at every altitude with the fewest parameters}{table.caption.12}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces SUES-200 satellite$\to $drone R@1 (\%) by altitude. \textsc  {Sparc}{} achieves perfect 100\% retrieval at 250\,m and 300\,m.}}{5}{table.caption.13}\protected@file@percent }
+\newlabel{tab:sues200_s2d}{{2}{5}{SUES-200 satellite$\to $drone R@1 (\%) by altitude. \ours {} achieves perfect 100\% retrieval at 250\,m and 300\,m}{table.caption.13}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces University-1652 drone$\leftrightarrow $satellite retrieval. \textsc  {Sparc}{} achieves the best results in all metrics with the smallest model.}}{5}{table.caption.15}\protected@file@percent }
+\newlabel{tab:u1652}{{3}{5}{University-1652 drone$\leftrightarrow $satellite retrieval. \ours {} achieves the best results in all metrics with the smallest model}{table.caption.15}{}}
+\@writefile{toc}{\contentsline {paragraph}{University-1652 results.}{5}{section*.14}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Ablation study on SUES-200 (drone$\to $satellite, all altitudes averaged). Components are ranked by their impact on R@1 when removed. The full model achieves 96.45\% R@1.}}{6}{table.caption.16}\protected@file@percent }
+\newlabel{tab:ablation}{{4}{6}{Ablation study on SUES-200 (drone$\to $satellite, all altitudes averaged). Components are ranked by their impact on R@1 when removed. The full model achieves 96.45\% R@1}{table.caption.16}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Ablation Study}{6}{subsection.4.4}\protected@file@percent }
+\newlabel{sec:ablation}{{4.4}{6}{Ablation Study}{subsection.4.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Accuracy vs.\ model size on SUES-200. \textsc  {Sparc}{} achieves the best accuracy with the fewest parameters, occupying the Pareto-optimal position. Vertical dashed line marks \textsc  {Sparc}{}'s 22\,M parameter count.}}{6}{figure.caption.18}\protected@file@percent }
+\newlabel{fig:pareto}{{2}{6}{Accuracy vs.\ model size on SUES-200. \ours {} achieves the best accuracy with the fewest parameters, occupying the Pareto-optimal position. Vertical dashed line marks \ours {}'s 22\,M parameter count}{figure.caption.18}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Convergence on SUES-200. \textsc  {Sparc}{} exceeds 90\% R@1 by epoch 30. The masked reconstruction activation at epoch 10 visibly accelerates learning. The plateau is stable, with the final epoch within 0.14\% of the best.}}{6}{figure.caption.20}\protected@file@percent }
+\newlabel{fig:convergence}{{3}{6}{Convergence on SUES-200. \ours {} exceeds 90\% R@1 by epoch 30. The masked reconstruction activation at epoch 10 visibly accelerates learning. The plateau is stable, with the final epoch within 0.14\% of the best}{figure.caption.20}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5}Analysis}{6}{subsection.4.5}\protected@file@percent }
+\newlabel{sec:analysis}{{4.5}{6}{Analysis}{subsection.4.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{Efficiency comparison.}{6}{section*.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Convergence behavior.}{6}{section*.19}\protected@file@percent }
+\bibstyle{ACM-Reference-Format}
+\bibdata{sparc-refs}
+\bibcite{caron2021dino}{{1}{2021}{{Caron et~al\mbox  {.}}}{{}}}
+\bibcite{chen2026singeo}{{2}{2026}{{Chen et~al\mbox  {.}}}{{}}}
+\bibcite{dai2021fsra}{{3}{2022}{{Dai et~al\mbox  {.}}}{{}}}
+\bibcite{deuser2023sample4geo}{{4}{2023}{{Deuser et~al\mbox  {.}}}{{}}}
+\bibcite{gou2021knowledge}{{5}{2021}{{Gou et~al\mbox  {.}}}{{}}}
+\bibcite{he2022mae}{{6}{2022}{{He et~al\mbox  {.}}}{{}}}
+\bibcite{hinton2015distilling}{{7}{2015}{{Hinton et~al\mbox  {.}}}{{}}}
+\bibcite{kim2020proxy}{{8}{2020}{{Kim et~al\mbox  {.}}}{{}}}
+\bibcite{lin2022dwdr}{{9}{2022}{{Lin et~al\mbox  {.}}}{{}}}
+\bibcite{locatello2020slot}{{10}{2020}{{Locatello et~al\mbox  {.}}}{{}}}
+\bibcite{loshchilov2019adamw}{{11}{2019}{{Loshchilov and Hutter}}{{}}}
+\bibcite{oquab2024dinov2}{{12}{2024}{{Oquab et~al\mbox  {.}}}{{}}}
+\bibcite{perez2018film}{{13}{2018}{{Perez et~al\mbox  {.}}}{{}}}
+\bibcite{sun2018beyond}{{14}{2018}{{Sun et~al\mbox  {.}}}{{}}}
+\bibcite{tarvainen2017ema}{{15}{2017}{{Tarvainen and Valpola}}{{}}}
+\bibcite{tian2024mccg}{{16}{2024}{{Tian et~al\mbox  {.}}}{{}}}
+\bibcite{oord2018infonce}{{17}{2018}{{van~den Oord et~al\mbox  {.}}}{{}}}
+\bibcite{wang2021tent}{{18}{2021}{{Wang et~al\mbox  {.}}}{{}}}
+\bibcite{wang2025cvd}{{19}{2025a}{{Wang et~al\mbox  {.}}}{{}}}
+\bibcite{wang2023segcn}{{20}{2023}{{Wang et~al\mbox  {.}}}{{}}}
+\bibcite{wang2025mcfa}{{21}{2025b}{{Wang et~al\mbox  {.}}}{{}}}
+\bibcite{wang2022lpn}{{22}{2022}{{Wang et~al\mbox  {.}}}{{}}}
+\bibcite{yang2024camp}{{23}{2024}{{Yang et~al\mbox  {.}}}{{}}}
+\bibcite{zhang2025glqinet}{{24}{2025}{{Zhang et~al\mbox  {.}}}{{}}}
+\bibcite{zheng2020university1652}{{25}{2020}{{Zheng et~al\mbox  {.}}}{{}}}
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Per-altitude R@1 (\%) on SUES-200 (D$\to $S). \textsc  {Sparc}{} achieves the smallest altitude gap (3.55\%) indicating robust altitude invariance.}}{7}{table.caption.22}\protected@file@percent }
+\newlabel{tab:per_alt}{{5}{7}{Per-altitude R@1 (\%) on SUES-200 (D$\to $S). \ours {} achieves the smallest altitude gap (3.55\%) indicating robust altitude invariance}{table.caption.22}{}}
+\@writefile{toc}{\contentsline {paragraph}{Per-altitude analysis.}{7}{section*.21}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Conclusion}{7}{section.5}\protected@file@percent }
+\newlabel{sec:conclusion}{{5}{7}{Conclusion}{section.5}{}}
+\@writefile{toc}{\contentsline {section}{References}{7}{section*.24}\protected@file@percent }
+\bibcite{zhu2023sues200}{{26}{2023}{{Zhu et~al\mbox  {.}}}{{}}}
+\citation{kim2020proxy}
+\citation{loshchilov2019adamw}
+\citation{wang2021tent}
+\@writefile{toc}{\contentsline {section}{\numberline {A}Full Loss Weights and Training Details}{8}{appendix.A}\protected@file@percent }
+\newlabel{sec:appendix_loss}{{A}{8}{Full Loss Weights and Training Details}{appendix.A}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Full loss weights (aligned with implementation).}}{8}{table.caption.25}\protected@file@percent }
+\newlabel{tab:app_loss}{{6}{8}{Full loss weights (aligned with implementation)}{table.caption.25}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {B}Research Journey and Part Visualizations}{8}{appendix.B}\protected@file@percent }
+\newlabel{sec:appendix_journey}{{B}{8}{Research Journey and Part Visualizations}{appendix.B}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces Research trajectory (best R@1 per variant).}}{8}{table.caption.26}\protected@file@percent }
+\newlabel{tab:app_journey}{{7}{8}{Research trajectory (best R@1 per variant)}{table.caption.26}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces Single-component ablation on SUES-200 (60 epochs). Removing Proxy Anchor or Masked Reconstruction causes the largest drops.}}{8}{table.caption.28}\protected@file@percent }
+\newlabel{tab:app_ablation}{{8}{8}{Single-component ablation on SUES-200 (60 epochs). Removing Proxy Anchor or Masked Reconstruction causes the largest drops}{table.caption.28}{}}
+\newlabel{tocindent-1}{0pt}
+\newlabel{tocindent0}{0pt}
+\newlabel{tocindent1}{6.25499pt}
+\newlabel{tocindent2}{10.34999pt}
+\newlabel{tocindent3}{0pt}
+\newlabel{tocindent4}{0pt}
+\newlabel{tocindent5}{0pt}
+\@writefile{lot}{\contentsline {table}{\numberline {9}{\ignorespaces Effect of evaluation protocol on MobileGeo (ConvNeXt-T) on SUES-200. Using the correct 200-satellite confusion gallery makes retrieval substantially harder and reveals the real headroom for \textsc  {Sparc}{}.}}{9}{table.caption.30}\protected@file@percent }
+\newlabel{tab:app_protocol}{{9}{9}{Effect of evaluation protocol on MobileGeo (ConvNeXt-T) on SUES-200. Using the correct 200-satellite confusion gallery makes retrieval substantially harder and reveals the real headroom for \ours {}}{table.caption.30}{}}
+\newlabel{TotPages}{{9}{9}{}{page.9}{}}
+\gdef \@abspage@last{9}
